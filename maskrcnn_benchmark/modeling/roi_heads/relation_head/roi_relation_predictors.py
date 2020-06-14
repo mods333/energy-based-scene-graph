@@ -12,6 +12,7 @@ from .model_msg_passing import IMPContext
 from .model_vtranse import VTransEFeature
 from .model_vctree import VCTreeLSTMContext
 from .model_motifs import LSTMContext, FrequencyBias
+from .model_egnn import EGNNContext
 from .model_motifs_with_attribute import AttributeLSTMContext
 from .model_transformer import TransformerContext
 from .utils_relation import layer_init, get_box_info, get_box_pair_info
@@ -199,6 +200,68 @@ class IMPPredictor(nn.Module):
         return obj_dists, rel_dists, add_losses
 
 
+@registry.ROI_RELATION_PREDICTOR.register("EGNNPredictor")
+class EGNNPredictor(nn.Module):
+
+    def __init__(self, config, in_channels):
+        super(EGNNPredictor, self).__init__()
+        self.attribute_on = config.MODEL.ATTRIBUTE_ON
+        self.num_obj_cls = config.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        self.num_att_cls = config.MODEL.ROI_ATTRIBUTE_HEAD.NUM_ATTRIBUTES
+        self.num_rel_cls = config.MODEL.ROI_RELATION_HEAD.NUM_CLASSES
+        
+        assert in_channels is not None
+        num_inputs = in_channels
+        self.use_bias = config.MODEL.ROI_RELATION_HEAD.PREDICT_USE_BIAS
+
+        # load class dict
+        statistics = get_dataset_statistics(config)
+        obj_classes, rel_classes, att_classes = statistics['obj_classes'], statistics['rel_classes'], statistics['att_classes']
+        assert self.num_obj_cls==len(obj_classes)
+        assert self.num_att_cls==len(att_classes)
+        assert self.num_rel_cls==len(rel_classes)
+        
+        if self.attribute_on:
+            raise ValueError("Attribute egnn not implemented")
+        else:
+            self.context_layer = EGNNContext(config, obj_classes, rel_classes, in_channels)
+        
+        if self.use_bias:
+            # convey statistics into FrequencyBias to avoid loading again
+            self.freq_bias = FrequencyBias(config, statistics)
+
+    def forward(self,proposals, rel_pair_idxs, rel_labels, rel_binarys, roi_features, union_features, logger=None):
+
+        #context infomation
+        if self.attribute_on:
+            raise ValueError("Attribute egnn not implemented")
+        else:
+            obj_dists, rel_dists   = self.context_layer(roi_features, proposals, union_features, rel_pair_idxs, logger)
+        
+        num_objs = [len(b) for b in proposals]
+        num_rels = [r.shape[0] for r in rel_pair_idxs]
+        assert len(num_rels) == len(num_objs)
+
+        if self.use_bias:
+            obj_preds = obj_dists.max(-1)[1]
+            obj_preds = obj_preds.split(num_objs, dim=0)
+            
+            pair_preds = []
+            for pair_idx, obj_pred in zip(rel_pair_idxs, obj_preds):
+                pair_preds.append( torch.stack((obj_pred[pair_idx[:,0]], obj_pred[pair_idx[:,1]]), dim=1) )
+            pair_pred = cat(pair_preds, dim=0)
+
+            rel_dists = rel_dists + self.freq_bias.index_with_labels(pair_pred.long())
+
+        obj_dists = obj_dists.split(num_objs, dim=0)
+        rel_dists = rel_dists.split(num_rels, dim=0)
+
+        # we use obj_preds instead of pred from obj_dists
+        # because in decoder_rnn, preds has been through a nms stage
+        add_losses = {}
+
+        return obj_dists, rel_dists, add_losses
+
 
 @registry.ROI_RELATION_PREDICTOR.register("MotifPredictor")
 class MotifPredictor(nn.Module):
@@ -258,11 +321,12 @@ class MotifPredictor(nn.Module):
             union_features (Tensor): (batch_num_rel, context_pooling_dim): visual union feature of each pair
         """
 
+        
         # encode context infomation
         if self.attribute_on:
             obj_dists, obj_preds, att_dists, edge_ctx = self.context_layer(roi_features, proposals, logger)
         else:
-            obj_dists, obj_preds, edge_ctx, _ = self.context_layer(roi_features, proposals, logger)
+            obj_dists, obj_preds, edge_ctx, _ = self.context_layer(roi_features, proposals, rel_pair_idxs, logger)
 
         # post decode
         edge_rep = self.post_emb(edge_ctx)
@@ -290,7 +354,7 @@ class MotifPredictor(nn.Module):
 
         if self.use_vision:
             if self.union_single_not_match:
-                prod_rep = prod_rep * self.up_dim(union_features)
+                prod_rep = prod_rep * self.up_edim(union_features)
             else:
                 prod_rep = prod_rep * union_features
 

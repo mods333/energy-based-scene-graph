@@ -46,6 +46,9 @@ class RelationSampling(object):
 
 
     def gtbox_relsample(self, proposals, targets):
+        '''
+        Function to sample relation proposals when the ground truth boxes are given
+        '''
         assert self.use_gt_box
         num_pos_per_img = int(self.batch_size_per_image * self.positive_fraction)
         rel_idx_pairs = []
@@ -71,6 +74,7 @@ class RelationSampling(object):
             
             rel_possibility = torch.ones((num_prp, num_prp), device=device).long() - torch.eye(num_prp, device=device).long()
             rel_possibility[tgt_head_idxs, tgt_tail_idxs] = 0
+            #Why not rel_possibility[tgt_tail_idxs, tgt_head_idxs] = 0?
             tgt_bg_idxs = torch.nonzero(rel_possibility > 0)
 
             # generate fg bg rel_pairs

@@ -6,11 +6,12 @@ _ext
 maskrcnn_benchmark.egg-info/
 build/
 dist/
-
+apex
+cocoapi
 # ipython/jupyter notebooks
 #*.ipynb
 **/.ipynb_checkpoints/
-
+checkpoints
 # Editor temporaries
 *.swn
 *.swo
@@ -26,3 +27,6 @@ dist/
 # MacOS
 .DS_Store
 
+#Dataset
+VG_100K
+*.h5

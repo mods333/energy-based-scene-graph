@@ -164,7 +164,7 @@ class DecoderRNN(nn.Module):
 
             pred_dist = self.out_obj(previous_state)
             out_dists.append(pred_dist)
-
+            
             if self.training:
                 labels_to_embed = labels[start_ind:end_ind].clone()
                 # Whenever labels are 0 set input to be our max prediction
@@ -175,6 +175,7 @@ class DecoderRNN(nn.Module):
                 out_commitments.append(labels_to_embed)
                 previous_obj_embed = self.obj_embed(labels_to_embed+1)
             else:
+                
                 assert l_batch == 1
                 out_dist_sample = F.softmax(pred_dist, dim=1)
                 best_ind = out_dist_sample[:, 1:].max(1)[1] + 1
@@ -352,6 +353,15 @@ class LSTMContext(nn.Module):
             holder = holder * (1 - self.average_ratio) + self.average_ratio * input.mean(0).view(-1)
         return holder
 
+    def get_contiguous_rel_pair_idx(self, rel_pair_idxs, proposals):
+
+        offset = 0
+        for i, proposal in enumerate(proposals): 
+            rel_pair_idxs[i] += offset
+            offset += len(proposal)
+        
+        return torch.cat(rel_pair_idxs, dim=0)
+
     def forward(self, x, proposals, rel_pair_idxs, logger=None, all_average=False, ctx_average=False):
         # labels will be used in DecoderRNN during training (for nms)
         if self.training or self.cfg.MODEL.ROI_RELATION_HEAD.USE_GT_BOX:
@@ -373,7 +383,7 @@ class LSTMContext(nn.Module):
             obj_pre_rep = self.untreated_obj_feat.view(1, -1).expand(batch_size, -1)
         else:
             obj_pre_rep = cat((x, obj_embed, pos_embed), -1)
-
+        import ipdb; ipdb.set_trace()
         boxes_per_cls = None
         if self.mode == 'sgdet' and not self.training:
             boxes_per_cls = cat([proposal.get_field('boxes_per_cls') for proposal in proposals], dim=0) # comes from post process of box_head
