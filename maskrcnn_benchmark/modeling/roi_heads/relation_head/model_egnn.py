@@ -227,7 +227,7 @@ class EGNNContext(nn.Module):
         #########################################################################################
         # Object Classification
         if self.mode != 'predcls':
-            obj_preds = self.obj_classifier(node_states)
+            obj_dists = self.obj_classifier(node_states)
         else:
             assert obj_labels is not None
             obj_preds = obj_labels
