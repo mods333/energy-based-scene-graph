@@ -8,6 +8,8 @@ build/
 dist/
 apex
 cocoapi
+wandb
+slurm_out
 # ipython/jupyter notebooks
 #*.ipynb
 **/.ipynb_checkpoints/

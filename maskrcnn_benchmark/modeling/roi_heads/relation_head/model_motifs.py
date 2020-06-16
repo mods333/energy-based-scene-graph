@@ -383,7 +383,6 @@ class LSTMContext(nn.Module):
             obj_pre_rep = self.untreated_obj_feat.view(1, -1).expand(batch_size, -1)
         else:
             obj_pre_rep = cat((x, obj_embed, pos_embed), -1)
-        import ipdb; ipdb.set_trace()
         boxes_per_cls = None
         if self.mode == 'sgdet' and not self.training:
             boxes_per_cls = cat([proposal.get_field('boxes_per_cls') for proposal in proposals], dim=0) # comes from post process of box_head
