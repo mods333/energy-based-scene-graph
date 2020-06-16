@@ -14,6 +14,7 @@ import datetime
 
 import torch
 from torch.nn.utils import clip_grad_norm_
+import wandb
 
 from maskrcnn_benchmark.config import cfg
 from maskrcnn_benchmark.data import make_data_loader
@@ -118,7 +119,7 @@ def train(cfg, local_rank, distributed, logger):
     )
     debug_print(logger, 'end dataloader')
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
-
+    
     if cfg.SOLVER.PRE_VAL:
         logger.info("Validate before training")
         run_val(cfg, model, val_data_loaders, distributed, logger)
@@ -132,6 +133,7 @@ def train(cfg, local_rank, distributed, logger):
 
     print_first_grad = True
     for iteration, (images, targets, _) in enumerate(train_data_loader, start_iter):
+
         if any(len(target) < 1 for target in targets):
             logger.error(f"Iteration={iteration + 1} || Image Ids used for training {_} || targets Length={[len(target) for target in targets]}" )
         data_time = time.time() - end
@@ -351,6 +353,9 @@ def main():
     if output_dir:
         mkdir(output_dir)
 
+    if get_rank() == 0:
+        wandb.init(project="sgebm")
+    
     logger = setup_logger("maskrcnn_benchmark", output_dir, get_rank())
     logger.info("Using {} GPUs".format(num_gpus))
     logger.info(args)
