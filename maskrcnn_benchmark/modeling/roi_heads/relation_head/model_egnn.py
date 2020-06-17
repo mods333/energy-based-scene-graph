@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from maskrcnn_benchmark.modeling.utils import cat
 from maskrcnn_benchmark.modeling.make_layers import make_fc
 from .model_motifs import FrequencyBias
-from .utils_motifs import obj_edge_vectors, encode_box_info, to_onehot
+from .utils_motifs import obj_edge_vectors, encode_box_info, to_onehot, nms_overlaps
 
 
 class EGNNContext(nn.Module):
@@ -30,6 +30,7 @@ class EGNNContext(nn.Module):
         self.rel_classes = rel_classes
         self.num_iter = num_iter
         self.alpha = 0.5
+        self.nms_thresh = self.cfg.TEST.RELATION.LATER_NMS_PREDICTION_THRES
 
         self.node_dim = self.cfg.MODEL.ROI_RELATION_HEAD.CONTEXT_HIDDEN_DIM
         self.edge_dim = self.cfg.MODEL.ROI_RELATION_HEAD.CONTEXT_HIDDEN_DIM
@@ -57,16 +58,17 @@ class EGNNContext(nn.Module):
         obj_embed_vecs = obj_edge_vectors(self.obj_classes, wv_dir=self.cfg.GLOVE_DIR, wv_dim=self.embed_dim)
 
         self.obj_embed1 = nn.Embedding(self.num_obj_classes, self.embed_dim)
-        # self.obj_embed2 = nn.Embedding(self.num_obj_classes, self.embed_dim)
+        self.obj_embed2 = nn.Embedding(self.num_obj_classes, self.embed_dim)
         with torch.no_grad():
             self.obj_embed1.weight.copy_(obj_embed_vecs, non_blocking=True)
-            # self.obj_embed2.weight.copy_(obj_embed_vecs, non_blocking=True)
+            self.obj_embed2.weight.copy_(obj_embed_vecs, non_blocking=True)
 
         self.obj_dim = in_channels + self.embed_dim + 128 #128 correspond to size of position embedding
         self.rel_dim = in_channels
 
         #Node Embedding
-        self.node_emdedding = nn.Linear(self.obj_dim, self.node_dim)
+        self.node_embedding = nn.Linear(self.obj_dim, self.node_dim)
+        self.node_embedding2 = nn.Linear(in_channels + self.embed_dim + self.node_dim, self.node_dim)
         #Edge embedding
         self.edge_embeding = nn.Linear(self.rel_dim, self.edge_dim)
         # position embedding
@@ -198,11 +200,11 @@ class EGNNContext(nn.Module):
 
         #Object embedding/Node embedding
         obj_pre_rep = cat((x, obj_embed, pos_embed), -1)
-        node_states = self.node_emdedding(obj_pre_rep)
+        node_states = self.node_embedding(obj_pre_rep)
 
-        boxes_per_cls = None
-        if self.mode == 'sgdet' and not self.training:
-            boxes_per_cls = cat([proposal.get_field('boxes_per_cls') for proposal in proposals], dim=0) # comes from post process of box_head
+        # boxes_per_cls = None
+        # if self.mode == 'sgdet' and not self.training:
+        #     boxes_per_cls = cat([proposal.get_field('boxes_per_cls') for proposal in proposals], dim=0) # comes from post process of box_head
 
         #Adjacency matrix
         rel_pair_idx = self.get_contiguous_rel_pair_idx(rel_pair_idxs, proposals)
@@ -215,7 +217,7 @@ class EGNNContext(nn.Module):
         edge_states = torch.sparse.FloatTensor(rel_pair_idx.t(), edge_rep, torch.Size([adj_matrix.shape[0], adj_matrix.shape[0], edge_rep.shape[-1]])).to_dense()
         
         #########################################################################################
-        # Message Passing
+        # Message Passing to update node states
         for _ in range(self.num_iter):
             
             #Aggregate node to node infromations
@@ -223,23 +225,43 @@ class EGNNContext(nn.Module):
             #Aggregate edge to node informations
             edge2node_messages = self.edge2node_mp(edge_states, adj_matrix)
             #Aggregate node to edge infromations
-            node2edge_messages = self.node2edge_mp(node_states, adj_matrix)
+            # node2edge_messages = self.node2edge_mp(node_states, adj_matrix)
 
             #Apply kernels to the recieves messages
             node2node_messages = self.node2node_kernel(node2node_messages)
             edge2node_messages = self.edge2node_kernel(edge2node_messages)
 
             node_states = self.node_update(node_states, node2node_messages, edge2node_messages)
-            edge_states = self.edge_update(edge_states, node2edge_messages)
+            # edge_states = self.edge_update(edge_states, node2edge_messages)
         
         #########################################################################################
         # Object Classification
         if self.mode != 'predcls':
             obj_dists = self.obj_classifier(node_states)
+            
+            use_decoder_nms = self.mode == 'sgdet' and not self.training
+            if use_decoder_nms:
+                num_objs = [len(p) for p in proposals]
+                boxes_per_cls = [proposal.get_field('boxes_per_cls') for proposal in proposals]
+                obj_preds = self.nms_per_cls(obj_dists, boxes_per_cls, num_objs)
+            else:
+                obj_preds = obj_dists[:, 1:].max(1)[1] + 1
         else:
             assert obj_labels is not None
             obj_preds = obj_labels
             obj_dists = to_onehot(obj_preds, self.num_obj_classes)
+
+        #Obtain new node states to refine the edge states besed on the either the refined node states and predicted/gt object labels
+        node_states = cat((x, node_states, self.obj_embed2(obj_preds)), dim=-1)
+        node_states = self.node_embedding2(node_states) #to change the dimesion
+
+        #########################################################################################
+        #Message Passing to Update the edge states 
+        for _ in range(self.num_iter):
+            #Aggregate node to edge infromations
+            node2edge_messages = self.node2edge_mp(node_states, adj_matrix)
+            #Update the edge states
+            edge_states = self.edge_update(edge_states, node2edge_messages)
 
         #########################################################################################
         # Relatoion Classifications
@@ -249,5 +271,25 @@ class EGNNContext(nn.Module):
 
         return obj_dists, rel_dists        
 
+    def nms_per_cls(self, obj_dists, boxes_per_cls, num_objs):
+        obj_dists = obj_dists.split(num_objs, dim=0)
+        obj_preds = []
+        for i in range(len(num_objs)):
+            is_overlap = nms_overlaps(boxes_per_cls[i]).cpu().numpy() >= self.nms_thresh # (#box, #box, #class)
+
+            out_dists_sampled = F.softmax(obj_dists[i], -1).cpu().numpy()
+            out_dists_sampled[:, 0] = -1
+
+            out_label = obj_dists[i].new(num_objs[i]).fill_(0)
+
+            for i in range(num_objs[i]):
+                box_ind, cls_ind = np.unravel_index(out_dists_sampled.argmax(), out_dists_sampled.shape)
+                out_label[int(box_ind)] = int(cls_ind)
+                out_dists_sampled[is_overlap[box_ind,:,cls_ind], cls_ind] = 0.0
+                out_dists_sampled[box_ind] = -1.0 # This way we won't re-sample
+
+            obj_preds.append(out_label.long())
+        obj_preds = torch.cat(obj_preds, dim=0)
+        return obj_preds
 
         
