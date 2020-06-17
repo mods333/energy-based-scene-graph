@@ -29,6 +29,8 @@ checkpoints
 # MacOS
 .DS_Store
 
+#Trianing script
+*.sh
 #Dataset
 VG_100K
 *.h5

@@ -92,21 +92,27 @@ class EGNNContext(nn.Module):
         self.kernel_activation = nn.ReLU()
         self.node2node_kernel = nn.Sequential(
             nn.Linear(self.node_dim, self.node_dim),
+            self.kernel_activation,
+            nn.Linear(self.node_dim, self.node_dim),
             self.kernel_activation
             )
         
         self.edge2node_kernel = nn.Sequential(
             nn.Linear(self.edge_dim, self.node_dim),
+            self.kernel_activation,
+            nn.Linear(self.node_dim, self.node_dim),
             self.kernel_activation
         )
 
-        self.node2edge_kernel = nn.Parameter(torch.zeros(self.node_dim*2, self.edge_dim))
-        nn.init.xavier_uniform_(self.node2edge_kernel, gain=1.414)
+        # self.node2edge_kernel = nn.Parameter(torch.zeros(self.node_dim*2, self.edge_dim))
+        # nn.init.xavier_uniform_(self.node2edge_kernel, gain=1.414)
 
-        # self.node2edge_kernel = nn.Sequential(
-        #     nn.Conv2d(2*self.node_dim, self.edge_dim, kernel_size=1, stride=1),
-        #     nn.ReLU()
-        # )
+        self.node2edge_kernel = nn.Sequential(
+            nn.Conv2d(2*self.node_dim, self.edge_dim, kernel_size=1, stride=1),
+            self.kernel_activation, 
+            nn.Conv2d(self.edge_dim, self.edge_dim, kernel_size=1, stride=1),
+            self.kernel_activation, 
+        )
         ##########################################################################################
 
         #Object classifier
@@ -148,7 +154,9 @@ class EGNNContext(nn.Module):
         '''
         n = node_states.shape[0]
         ek_input = torch.cat([node_states.repeat(1,n).view(n*n, -1), node_states.repeat(n,1)], dim=1).view(n,n, 2*self.node_dim) * adj_matrix[:,:,None]
-        node2edge_messages = self.kernel_activation(torch.matmul(ek_input, self.node2edge_kernel))
+        ek_input = ek_input.transpose(0, 2).unsqueeze(0)
+        node2edge_messages = self.node2edge_kernel(ek_input).squeeze(0).transpose(0,2)
+        # node2edge_messages = self.kernel_activation(torch.matmul(ek_input, self.node2edge_kernel))
         return node2edge_messages    
     
     def node_update(self, node_states, node2node_messages, edge2node_messages):
@@ -156,7 +164,7 @@ class EGNNContext(nn.Module):
 
     def edge_update(self, edge_states, node2edge_messages):
         m = node2edge_messages.shape[0]
-        edge_states = self.edge_gate(node2edge_messages.view(m*m, -1), edge_states.view(m*m, -1)).view(m,m,-1)
+        edge_states = self.edge_gate(node2edge_messages.reshape(m*m, -1), edge_states.reshape(m*m, -1)).view(m,m,-1)
         return edge_states
 
     def forward(self, x, proposals, union_features, rel_pair_idxs, logger=None, all_average=False):
