@@ -7,6 +7,7 @@ from tqdm import tqdm
 from functools import reduce
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+import wandb
 
 from maskrcnn_benchmark.data import get_dataset_statistics
 from maskrcnn_benchmark.structures.bounding_box import BoxList
@@ -110,6 +111,7 @@ def do_vg_evaluation(
         mAp = coco_eval.stats[1]
         
         result_str += 'Detection evaluation mAp=%.4f\n' % mAp
+        wandb.log({"Dectection mAp": mAp})
         result_str += '=' * 100 + '\n'
 
     if "relations" in iou_types:
