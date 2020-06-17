@@ -28,7 +28,8 @@ checkpoints
 
 # MacOS
 .DS_Store
-
+#Trainin scripts
+*.sh
 #Dataset
 VG_100K
 *.h5
