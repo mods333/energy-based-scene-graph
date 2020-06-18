@@ -186,3 +186,146 @@ def clip_grad_norm(named_parameters, max_norm, logger, clip=False, verbose=False
         logger.info('-------------------------------')
 
     return total_norm
+
+class EBMCheckpointer(object):
+    def __init__(
+        self,
+        cfg,
+        base_model,
+        energy_model,
+        base_optimizer=None,
+        energy_optimizer=None,
+        base_scheduler=None,
+        energy_scheduler=None,
+        save_dir="",
+        save_to_disk=None,
+        logger=None,
+        custom_scheduler=False,
+    ):
+        self.cfg = cfg.clone()
+
+        self.base_model = base_model
+        self.energy_model = energy_model
+
+        self.base_optimizer = base_optimizer
+        self.energy_optimizer = energy_optimizer
+
+        self.base_scheduler = base_scheduler
+        self.energy_scheduler = energy_scheduler
+
+        self.save_dir = save_dir
+        self.save_to_disk = save_to_disk
+        if logger is None:
+            logger = logging.getLogger(__name__)
+        self.logger = logger
+        self.custom_scheduler = custom_scheduler
+
+    def save(self, name, **kwargs):
+        if not self.save_dir:
+            return
+
+        if not self.save_to_disk:
+            return
+
+        data = {}
+        data["base_model"] = self.base_model.state_dict()
+        data["energy_model"] = self.energy_model.state_dict()
+
+        if self.base_optimizer is not None:
+            data["base_optimizer"] = self.base_optimizer.state_dict()
+        if self.energy_optimizer is not None:
+            data["energy_optimizer"] = self.energy_optimizer.state_dict()
+
+        if self.base_scheduler is not None and not self.custom_scheduler:
+            data["base_scheduler"] = self.base_scheduler.state_dict()
+        if self.energy_scheduler is not None and not self.custom_scheduler:
+            data["energy_scheduler"] = self.energy_scheduler.state_dict()
+
+        data.update(kwargs)
+
+        save_file = os.path.join(self.save_dir, "{}.pth".format(name))
+        self.logger.info("Saving checkpoint to {}".format(save_file))
+        torch.save(data, save_file)
+        self.tag_last_checkpoint(save_file)
+
+    def load(self, f=None, with_optim=True, update_schedule=False, load_mapping={}, only_base=False):
+        '''
+        Parameters:
+        ----------
+            f : Filename to load from 
+            with_optim: Boolean to indicate if the optimizer should be loaded as well
+            update_schedule: 
+            load_mapping: A dcitionary which specified mapping for some module to their names
+            only_base: Indicate if only the base model should be loader
+        '''
+        if self.has_checkpoint():
+            # override argument with existing checkpoint
+            f = self.get_checkpoint_file()
+        if not f:
+            # no checkpoint could be found
+            self.logger.info("No checkpoint found. Initializing model from scratch")
+            return {}
+        self.logger.info("Loading checkpoint from {}".format(f))
+        checkpoint = self._load_file(f)
+        self._load_base_model(checkpoint, load_mapping, only_base)
+        if not only_base:
+            self._load_energy_model(checkpoint)
+        if with_optim:
+            if "base_optimizer" in checkpoint and self.optimizer:
+                self.logger.info("Loading base_optimizer from {}".format(f))
+                self.base_optimizer.load_state_dict(checkpoint.pop("base_optimizer"))
+            if "energy_optimizer" in checkpoint and self.optimizer:
+                self.logger.info("Loading energy_optimizer from {}".format(f))
+                self.energy_optimizer.load_state_dict(checkpoint.pop("energy_optimizer"))
+
+            if "base_scheduler" in checkpoint and self.base_scheduler:
+                self.logger.info("Loading base_scheduler from {}".format(f))
+                if update_schedule:
+                    self.base_scheduler.last_epoch = checkpoint["iteration"]
+                else:
+                    self.base_scheduler.load_state_dict(checkpoint.pop("base_scheduler"))
+            if "energy_scheduler" in checkpoint and self.energy_scheduler:
+                self.logger.info("Loading energy scheduler from {}".format(f))
+                if update_schedule:
+                    self.energy_scheduler.last_epoch = checkpoint["iteration"]
+                else:
+                    self.energy_scheduler.load_state_dict(checkpoint.pop("energy_scheduler"))
+                
+
+        # return any further checkpoint data
+        return checkpoint
+
+    def has_checkpoint(self):
+        save_file = os.path.join(self.save_dir, "last_checkpoint")
+        return os.path.exists(save_file)
+
+    def get_checkpoint_file(self):
+        save_file = os.path.join(self.save_dir, "last_checkpoint")
+        try:
+            with open(save_file, "r") as f:
+                last_saved = f.read()
+                last_saved = last_saved.strip()
+        except IOError:
+            # if file doesn't exist, maybe because it has just been
+            # deleted by a separate process
+            last_saved = ""
+        return last_saved
+
+    def tag_last_checkpoint(self, last_filename):
+        save_file = os.path.join(self.save_dir, "last_checkpoint")
+        with open(save_file, "w") as f:
+            f.write(last_filename)
+
+    def _load_file(self, f):
+        return torch.load(f, map_location=torch.device("cpu"))
+
+    def _load_base_model(self, checkpoint, load_mapping, only_base):
+        if only_base:
+            key = "model"
+        else:
+            key = "base_model"
+        load_state_dict(self.base_model, checkpoint.pop(key), load_mapping)
+
+    def _load_energy_model(self, checkpoint):
+        self.energy_model.load_state_dict(checkpoint.pop("energy_model"))
+        

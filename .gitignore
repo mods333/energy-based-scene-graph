@@ -28,6 +28,8 @@ checkpoints
 
 # MacOS
 .DS_Store
+#VSCODE
+workspace.code-workspace
 #Trainin scripts
 *.sh
 #Dataset

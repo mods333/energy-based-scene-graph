@@ -7,11 +7,14 @@ import torch
 from torch import nn
 
 from maskrcnn_benchmark.structures.image_list import to_image_list
+from maskrcnn_benchmark.utils.logger import debug_print
 
 from ..backbone import build_backbone
-from ..rpn.rpn import build_rpn
 from ..roi_heads.roi_heads import build_roi_heads
+from ..rpn.rpn import build_rpn
 
+import logging
+logger = logging.getLogger(__name__)
 
 class GeneralizedRCNN(nn.Module):
     """
@@ -26,8 +29,11 @@ class GeneralizedRCNN(nn.Module):
     def __init__(self, cfg):
         super(GeneralizedRCNN, self).__init__()
         self.cfg = cfg.clone()
+        debug_print(logger, "Building Backbone")
         self.backbone = build_backbone(cfg)
+        debug_print(logger, "Building RPN")
         self.rpn = build_rpn(cfg, self.backbone.out_channels)
+        debug_print(logger, "Building ROI Heads")
         self.roi_heads = build_roi_heads(cfg, self.backbone.out_channels)
 
     def forward(self, images, targets=None, logger=None):
@@ -62,6 +68,6 @@ class GeneralizedRCNN(nn.Module):
             if not self.cfg.MODEL.RELATION_ON:
                 # During the relationship training stage, the rpn_head should be fixed, and no loss. 
                 losses.update(proposal_losses)
-            return losses
+            return losses, result
 
         return result

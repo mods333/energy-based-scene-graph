@@ -48,7 +48,7 @@ class SGRecall(SceneGraphEvaluation):
         result_str = 'SGG eval: '
         for k, v in self.result_dict[mode + '_recall'].items():
             result_str += '  R @ %d: %.4f; ' % (k, np.mean(v))
-            wandb.log({'R@{}'.format(k): np.mean(v)})
+            # wandb.log({'R@{}'.format(k): np.mean(v)})
         result_str += ' for mode=%s, type=Recall(Main).' % mode
         result_str += '\n'
         return result_str
@@ -108,7 +108,7 @@ class SGNoGraphConstraintRecall(SceneGraphEvaluation):
         result_str = 'SGG eval: '
         for k, v in self.result_dict[mode + '_recall_nogc'].items():
             result_str += 'ngR @ %d: %.4f; ' % (k, np.mean(v))
-            wandb.log({'ngR @ {}'.format(k): np.mean(v)})
+            # wandb.log({'ngR @ {}'.format(k): np.mean(v)})
         result_str += ' for mode=%s, type=No Graph Constraint Recall(Main).' % mode
         result_str += '\n'
         return result_str
@@ -165,7 +165,7 @@ class SGZeroShotRecall(SceneGraphEvaluation):
         result_str = 'SGG eval: '
         for k, v in self.result_dict[mode + '_zeroshot_recall'].items():
             result_str += ' zR @ %d: %.4f; ' % (k, np.mean(v))
-            wandb.log({'zR @ {}'.format(k): np.mean(v)})
+            # wandb.log({'zR @ {}'.format(k): np.mean(v)})
         result_str += ' for mode=%s, type=Zero Shot Recall.' % mode
         result_str += '\n'
         return result_str
@@ -267,7 +267,7 @@ class SGMeanRecall(SceneGraphEvaluation):
         result_str = 'SGG eval: '
         for k, v in self.result_dict[mode + '_mean_recall'].items():
             result_str += ' mR @ %d: %.4f; ' % (k, float(v))
-            wandb.log({'mR @ {}'.format(k) : float(v)})
+            # wandb.log({'mR @ {}'.format(k) : float(v)})
         result_str += ' for mode=%s, type=Mean Recall.' % mode
         result_str += '\n'
         if self.print_detail:

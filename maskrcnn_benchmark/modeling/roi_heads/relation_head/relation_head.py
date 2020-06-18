@@ -78,7 +78,7 @@ class ROIRelationHead(torch.nn.Module):
         # final classifier that converts the features into predictions
         # should corresponding to all the functions and layers after the self.context class
         refine_logits, relation_logits, add_losses = self.predictor(proposals, rel_pair_idxs, rel_labels, rel_binarys, roi_features, union_features, logger)
-
+        import ipdb; ipdb.set_trace()
         # for test
         if not self.training:
             result = self.post_processor((relation_logits, refine_logits), rel_pair_idxs, proposals)

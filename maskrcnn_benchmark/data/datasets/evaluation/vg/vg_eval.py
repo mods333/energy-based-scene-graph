@@ -111,7 +111,7 @@ def do_vg_evaluation(
         mAp = coco_eval.stats[1]
         
         result_str += 'Detection evaluation mAp=%.4f\n' % mAp
-        wandb.log({"Dectection mAp": mAp})
+        # wandb.log({"Dectection mAp": mAp})
         result_str += '=' * 100 + '\n'
 
     if "relations" in iou_types:

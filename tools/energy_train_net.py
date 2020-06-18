@@ -17,13 +17,14 @@ from torch.nn.utils import clip_grad_norm_
 import wandb
 
 from maskrcnn_benchmark.config import cfg
-from maskrcnn_benchmark.data import make_data_loader
+from maskrcnn_benchmark.data import make_data_loader, get_dataset_statistics
 from maskrcnn_benchmark.solver import make_lr_scheduler
 from maskrcnn_benchmark.solver import make_optimizer
 from maskrcnn_benchmark.engine.trainer import reduce_loss_dict
 from maskrcnn_benchmark.engine.inference import inference
 from maskrcnn_benchmark.modeling.detector import build_detection_model
-from maskrcnn_benchmark.utils.checkpoint import DetectronCheckpointer
+from maskrcnn_benchmark.modeling.energy_head import build_energy_model
+from maskrcnn_benchmark.utils.checkpoint import EBMCheckpointer
 from maskrcnn_benchmark.utils.checkpoint import clip_grad_norm
 from maskrcnn_benchmark.utils.collect_env import collect_env_info
 from maskrcnn_benchmark.utils.comm import synchronize, get_rank, all_gather
@@ -40,16 +41,21 @@ try:
 except ImportError:
     raise ImportError('Use APEX for multi-precision via apex.amp')
 
+#Training script for training just the energy model with pretraied realtion detector
 
 def train(cfg, local_rank, distributed, logger):
     debug_print(logger, 'prepare training')
-    model = build_detection_model(cfg) 
-    debug_print(logger, 'end model construction')
-
+    base_model = build_detection_model(cfg) 
+    debug_print(logger, 'end base model construction')
+    statistics = get_dataset_statistics(cfg)
+    energy_model = build_energy_model(cfg, statistics['obj_classes'], statistics['rel_classes'], base_model.backbone.out_channels)
+    debug_print(logger, 'End energy Model Constructin')
+    
     # modules that should be always set in eval mode
     # their eval() method should be called after model.train() is called
-    eval_modules = (model.rpn, model.backbone, model.roi_heads.box,)
- 
+    
+    eval_modules = (base_model.backbone, base_model.rpn, base_model.roi_heads.box, base_model.roi_heads.relation)
+    
     fix_eval_modules(eval_modules)
 
     # NOTE, we slow down the LR of the layers start with the names in slow_heads
@@ -68,25 +74,41 @@ def train(cfg, local_rank, distributed, logger):
         load_mapping["roi_heads.relation.union_feature_extractor.att_feature_extractor"] = "roi_heads.attribute.feature_extractor"
 
     device = torch.device(cfg.MODEL.DEVICE)
-    model.to(device)
+    base_model.to(device)
+    energy_model.to(device)
 
     num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     num_batch = cfg.SOLVER.IMS_PER_BATCH
-    optimizer = make_optimizer(cfg, model, logger, slow_heads=slow_heads, slow_ratio=10.0, rl_factor=float(num_batch))
-    scheduler = make_lr_scheduler(cfg, optimizer, logger)
-    debug_print(logger, 'end optimizer and shcedule')
+
+    #Build Optimier
+    # base_optimizer = make_optimizer(cfg, base_model, logger, slow_heads=slow_heads, slow_ratio=10.0, rl_factor=float(num_batch))
+    energy_optimizer = make_optimizer(cfg, energy_model, logger, slow_heads=[], slow_ratio=10.0, rl_factor=float(num_batch))
+
+    #Build scheduler
+    # base_scheduler = make_lr_scheduler(cfg, base_optimizer, logger)
+    energy_scheduler = make_lr_scheduler(cfg, energy_optimizer, logger)
+
+    debug_print(logger, 'end optimizer and scheduler')
+
     # Initialize mixed-precision training
     use_mixed_precision = cfg.DTYPE == "float16"
     amp_opt_level = 'O1' if use_mixed_precision else 'O0'
-    model, optimizer = amp.initialize(model, optimizer, opt_level=amp_opt_level)
+    [base_model, energy_model] , energy_optimizer = amp.initialize([base_model, energy_model], energy_optimizer, opt_level=amp_opt_level)
 
     if distributed:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[local_rank], output_device=local_rank,
+        base_model = torch.nn.parallel.DistributedDataParallel(
+            base_model, device_ids=[local_rank], output_device=local_rank,
             # this should be removed if we update BatchNorm stats
             broadcast_buffers=False,
             find_unused_parameters=True,
         )
+        energy_model = torch.nn.parallel.DistributedDataParallel(
+            energy_model, device_ids=[local_rank], output_device=local_rank,
+            # this should be removed if we update BatchNorm stats
+            broadcast_buffers=False,
+            find_unused_parameters=True,
+        )
+
     debug_print(logger, 'end distributed')
     arguments = {}
     arguments["iteration"] = 0
@@ -94,17 +116,23 @@ def train(cfg, local_rank, distributed, logger):
     output_dir = cfg.OUTPUT_DIR
 
     save_to_disk = get_rank() == 0
-    checkpointer = DetectronCheckpointer(
-        cfg, model, optimizer, scheduler, output_dir, save_to_disk, custom_scheduler=True
+
+    checkpointer = EBMCheckpointer(
+        cfg=cfg, base_model=base_model, energy_model=energy_model, 
+        base_optimizer=None, energy_optimizer=energy_optimizer, 
+        base_scheduler=None, energy_scheduler=energy_scheduler, 
+        save_dir=output_dir, save_to_disk=save_to_disk, custom_scheduler=True
     )
+    
     # if there is certain checkpoint in output_dir, load it, else load pretrained detector
     if checkpointer.has_checkpoint():
         extra_checkpoint_data = checkpointer.load(cfg.MODEL.PRETRAINED_DETECTOR_CKPT, 
                                        update_schedule=cfg.SOLVER.UPDATE_SCHEDULE_DURING_LOAD)
         arguments.update(extra_checkpoint_data)
     else:
-        # load_mapping is only used when we init current model from detection model.
-        checkpointer.load(cfg.MODEL.PRETRAINED_DETECTOR_CKPT, with_optim=False, load_mapping=load_mapping)
+        #Load the realtion prediction model
+        checkpointer.load(cfg.MODEL.PRETRAINED_DETECTOR_CKPT, with_optim=False, only_base=True) #load_mapping should be empty
+    
     debug_print(logger, 'end load checkpointer')
     train_data_loader = make_data_loader(
         cfg,
@@ -121,9 +149,10 @@ def train(cfg, local_rank, distributed, logger):
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
     
     if cfg.SOLVER.PRE_VAL:
-        logger.info("Validate before training")
-        run_val(cfg, model, val_data_loaders, distributed, logger)
+        logger.info("Validate base model before training")
+        run_val(cfg, base_model, val_data_loaders, distributed, logger)
 
+    
     logger.info("Start training")
     meters = MetricLogger(delimiter="  ")
     max_iter = len(train_data_loader)
@@ -131,6 +160,7 @@ def train(cfg, local_rank, distributed, logger):
     start_training_time = time.time()
     end = time.time()
 
+    import ipdb; ipdb.set_trace()
     print_first_grad = True
     for iteration, (images, targets, _) in enumerate(train_data_loader, start_iter):
 
@@ -140,13 +170,13 @@ def train(cfg, local_rank, distributed, logger):
         iteration = iteration + 1
         arguments["iteration"] = iteration
 
-        model.train()
+        base_model.train()
         fix_eval_modules(eval_modules)
 
         images = images.to(device)
         targets = [target.to(device) for target in targets]
 
-        loss_dict, _ = model(images, targets)
+        loss_dict, _ = base_model(images, targets)
 
         losses = sum(loss for loss in loss_dict.values())
 
@@ -353,8 +383,8 @@ def main():
     if output_dir:
         mkdir(output_dir)
 
-    if get_rank() == 0:
-        wandb.init(project="sgebm")
+    # if get_rank() == 0:
+    #     wandb.init(project="sgebm")
     
     logger = setup_logger("maskrcnn_benchmark", output_dir, get_rank())
     logger.info("Using {} GPUs".format(num_gpus))
