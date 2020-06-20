@@ -46,6 +46,20 @@ _C.MODEL.PRETRAINED_DETECTOR_CKPT = ""
 _C.ENERGY_MODEL = CN()
 _C.ENERGY_MODEL.META_ARCHITECTURE = "GraphEnergyModel"
 _C.ENERGY_MODEL.TRAINIG_MODE = "joint"
+_C.ENERGY_MODEL.LOSS = 'ContrastiveDivergence' 
+_C.ENERGY_MODEL.L2COEFF = 1
+_C.ENERGY_MODEL.TEMP = 1
+
+# -----------------------------------------------------------------------------
+# SAMPLER
+# -----------------------------------------------------------------------------
+_C.SAMPLER = CN()
+_C.SAMPLER.NAME = 'SGLD'
+_C.SAMPLER.LR = 0.01
+_C.SAMPLER.VAR = 0.001
+_C.SAMPLER.ITERS = 10
+_C.SAMPLER.GRAD_CLIP = 0.01
+
 # -----------------------------------------------------------------------------
 # INPUT
 # -----------------------------------------------------------------------------
