@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-
-class GatedPooling(nn.Module):
+from torch_scatter import scatter
+from maskrcnn_benchmark.modeling.utils import cat
+class EdgeGatedPooling(nn.Module):
     '''
     Modified Version of Global Pooling Layer from the “Gated Graph Sequence Neural Networks” paper
     Parameters:
@@ -11,7 +12,7 @@ class GatedPooling(nn.Module):
     '''
 
     def __init__(self, node_dim, edge_dim, pooling_dim):
-        super(GatedPooling, self).__init__()
+        super(EdgeGatedPooling, self).__init__()
 
         ###############################################################
         # Gates to compute attention scores
@@ -38,12 +39,50 @@ class GatedPooling(nn.Module):
         self.poolingLayer = nn.Sequential(
             nn.Linear(node_dim + edge_dim, pooling_dim)
         )
-    def forward(self, node_features, edge_features):
+    def forward(self, node_features, edge_features, node_batch_list, edge_batch_list):
 
+        
         node_alpha = self.hgate_node(node_features)
         edge_alpha = self.hgate_edge(edge_features)
-        import ipdb; ipdb.set_trace()
-        node_pool = torch.sum(node_alpha*node_features, dim=0)
-        edge_pool = torch.sum(edge_alpha*edge_features, dim=0)
+        
+        node_pool = scatter(node_alpha*node_features, node_batch_list, dim=0)
+        edge_pool = scatter(edge_alpha*edge_features, edge_batch_list, dim=0)
 
         return self.poolingLayer(cat((node_pool, edge_pool), -1))
+
+class GatedPooling(nn.Module):
+    '''
+    Modified Version of Global Pooling Layer from the “Gated Graph Sequence Neural Networks” paper
+    Parameters:
+    ----------
+        node_dim: Dimension of node features
+        edge_dim: Dimension of edge features
+    '''
+
+    def __init__(self, node_dim, pooling_dim):
+        super(GatedPooling, self).__init__()
+
+        ###############################################################
+        # Gates to compute attention scores
+        self.hgate_node = nn.Sequential(
+            nn.Linear(node_dim, 1)
+        )
+
+        ##############################################################
+        #Layers to tranfrom features before combinig
+        self.htheta_node = nn.Sequential(
+            nn.Linear(node_dim, node_dim),
+            nn.ReLU()
+        )
+
+        ################################################################
+        #Final pooling layer
+        self.poolingLayer = nn.Sequential(
+            nn.Linear(node_dim, pooling_dim)
+        )
+    def forward(self, node_features, batch_list):
+
+        node_alpha = self.hgate_node(node_features)
+        node_pool = scatter(node_alpha*node_features, batch_list, dim=0, reduce="sum")
+
+        return self.poolingLayer(node_pool)

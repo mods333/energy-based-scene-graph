@@ -13,7 +13,7 @@ class EGNNLayer(nn.Module):
         self.node_dim = node_dim
         self.edge_dim = edge_dim
         self.iters = iters
-
+        self.alpha = 0.5
         ################################
         #Define the kernels
 
@@ -38,6 +38,10 @@ class EGNNLayer(nn.Module):
             nn.Conv2d(self.edge_dim, self.edge_dim, kernel_size=1, stride=1),
             self.kernel_activation, 
         )
+
+        self.node_gate = nn.GRUCell(self.node_dim, self.node_dim)
+        self.edge_gate = nn.GRUCell(self.edge_dim, self.edge_dim, bias=False)
+
 
     def node2node_mp(self, node_states, adj_matrix):
         '''
@@ -93,3 +97,52 @@ class EGNNLayer(nn.Module):
             edge_states = self.edge_update(edge_states, node2edge_messages)
         
         return node_states, edge_states
+
+class GNNLayer(nn.Module):
+    '''
+    Graph Layer to apply edged graph convolution on the specified graphs
+    '''
+
+    def __init__(self, node_dim, iters=3):
+        
+        super(GNNLayer, self).__init__()
+
+        self.node_dim = node_dim
+        self.iters = iters
+
+        ################################
+        #Define the kernels
+
+        self.kernel_activation = nn.ReLU()
+        self.node_kernel = nn.Sequential(
+            nn.Linear(self.node_dim, self.node_dim),
+            self.kernel_activation,
+            nn.Linear(self.node_dim, self.node_dim),
+            self.kernel_activation
+            )
+        
+        self.node_gate = nn.GRUCell(self.node_dim, self.node_dim)
+
+    def node_mp(self, node_states, adj_matrix):
+        '''
+        Function to aggreagate message from all the neighbouring nodes in the graph
+        '''
+        node_messages = torch.mm(adj_matrix, node_states)
+        #Message normalization
+        node_messages = node_messages/(torch.sum(adj_matrix, dim=1, keepdim=True) + 1e-6)
+        return node_messages
+    
+    
+    def node_update(self, node_states, node_messages):
+        return self.node_gate(node_messages, node_states)
+
+    def forward(self, node_states, adj_matrix):
+
+        for _ in range(self.iters):
+
+            #Aggregate node to node infromations
+            node_messages = self.node_mp(node_states, adj_matrix)
+            node_messages = self.node_kernel(node_messages)
+            node_states = self.node_update(node_states, node_messages)
+        
+        return node_states
