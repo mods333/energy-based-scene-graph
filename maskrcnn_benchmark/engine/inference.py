@@ -1,16 +1,17 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import logging
-import time
 import os
+import time
 
 import torch
 from tqdm import tqdm
 
 from maskrcnn_benchmark.config import cfg
 from maskrcnn_benchmark.data.datasets.evaluation import evaluate
-from ..utils.comm import is_main_process, get_world_size
-from ..utils.comm import all_gather
-from ..utils.comm import synchronize
+from maskrcnn_benchmark.modeling.energy_head import detection2graph, gt2graph
+
+from ..utils.comm import (all_gather, get_world_size, is_main_process,
+                          synchronize)
 from ..utils.timer import Timer, get_time_str
 from .bbox_aug import im_detect_bbox_aug
 
@@ -49,6 +50,89 @@ def compute_on_dataset(model, data_loader, device, synchronize_gather=True, time
     torch.cuda.empty_cache()
     return results_dict
 
+def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loader, device, num_obj_classes, num_rel_classes, synchronize_gather=True, timer=None, dev_run=False):
+    
+    base_model.eval()
+    energy_model.eval()
+
+    
+    results_dict = {}
+    cpu_device = torch.device("cpu")
+    torch.cuda.empty_cache()
+
+    if cfg.MODEL.ROI_RELATION_HEAD.USE_GT_BOX:
+        if cfg.MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL:
+            mode = 'predcls'
+        else:
+            mode = 'sgcls'
+    else:
+        mode = 'sgdet'
+
+    for _, batch in enumerate(tqdm(data_loader)):
+        with torch.no_grad():
+            images, targets, image_ids = batch
+            targets = [target.to(device) for target in targets]
+            if timer:
+                timer.tic()
+            if cfg.TEST.BBOX_AUG.ENABLED:
+                output = im_detect_bbox_aug(base_model, images, device)
+            else:
+                # relation detection needs the targets
+                output = base_model(images.to(device), targets)
+            if timer:
+                if not cfg.MODEL.DEVICE == 'cpu':
+                    torch.cuda.synchronize()
+                timer.toc()
+            # output = [o.to(cpu_device) for o in output]
+        
+        #MCMC refinement
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images.to(device), output, base_model, num_obj_classes)
+        
+        pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode)
+
+        rel_offset = 0
+        obj_offset = 0
+
+        if mode == 'predcls':
+            for o in output:
+                num_rels = o.extra_fields['pred_rel_scores'].shape[0]
+                o.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states[rel_offset : rel_offset + num_rels]
+                rel_offset += num_rels
+
+        else:
+            for o in output:
+                num_rels = o.extra_fields['pred_rel_scores'].shape[0]
+                num_objs = o.bbox.shape[0]
+
+                o.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states[rel_offset : rel_offset + num_rels]
+                o.extra_fields['predict_logits'] = pred_scene_graph.node_states[obj_offset: obj_offset + num_objs]
+
+                rel_offset += num_rels
+                obj_offset += num_objs
+
+        # #Update detections
+        # if mode == 'predcls':
+        #     output.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states
+        # else:
+        #     output.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states
+        #     output.extra_fields['predict_logits'] = pred_scene_graph.node_states
+        
+        output = [o.to(cpu_device) for o in output]
+
+        if synchronize_gather:
+            synchronize()
+            multi_gpu_predictions = all_gather({img_id: result for img_id, result in zip(image_ids, output)})
+            if is_main_process():
+                for p in multi_gpu_predictions:
+                    results_dict.update(p)
+        else:
+            results_dict.update(
+                {img_id: result for img_id, result in zip(image_ids, output)}
+            )
+        if dev_run:
+            break
+    torch.cuda.empty_cache()
+    return results_dict
 
 def _accumulate_predictions_from_multiple_gpus(predictions_per_gpu, synchronize_gather=True):
     if not synchronize_gather:
@@ -107,6 +191,83 @@ def inference(
         predictions = torch.load(os.path.join(output_folder, "eval_results.pytorch"), map_location=torch.device("cpu"))['predictions']
     else:
         predictions = compute_on_dataset(model, data_loader, device, synchronize_gather=cfg.TEST.RELATION.SYNC_GATHER, timer=inference_timer)
+    # wait for all processes to complete before measuring the time
+    synchronize()
+    total_time = total_timer.toc()
+    total_time_str = get_time_str(total_time)
+    logger.info(
+        "Total run time: {} ({} s / img per device, on {} devices)".format(
+            total_time_str, total_time * num_devices / len(dataset), num_devices
+        )
+    )
+    total_infer_time = get_time_str(inference_timer.total_time)
+    logger.info(
+        "Model inference time: {} ({} s / img per device, on {} devices)".format(
+            total_infer_time,
+            inference_timer.total_time * num_devices / len(dataset),
+            num_devices,
+        )
+    )
+
+    if not load_prediction_from_cache:
+        predictions = _accumulate_predictions_from_multiple_gpus(predictions, synchronize_gather=cfg.TEST.RELATION.SYNC_GATHER)
+
+    if not is_main_process():
+        return -1.0
+
+    #if output_folder is not None and not load_prediction_from_cache:
+    #    torch.save(predictions, os.path.join(output_folder, "predictions.pth"))
+
+    extra_args = dict(
+        box_only=box_only,
+        iou_types=iou_types,
+        expected_results=expected_results,
+        expected_results_sigma_tol=expected_results_sigma_tol,
+    )
+
+    return evaluate(cfg=cfg,
+                    dataset=dataset,
+                    predictions=predictions,
+                    output_folder=output_folder,
+                    logger=logger,
+                    **extra_args)
+
+def energy_inference(
+        cfg,
+        base_model,
+        energy_model,
+        sampler,
+        data_loader,
+        dataset_name,
+        iou_types=("bbox",),
+        box_only=False,
+        device="cuda",
+        expected_results=(),
+        expected_results_sigma_tol=4,
+        output_folder=None,
+        logger=None,
+):
+    load_prediction_from_cache = cfg.TEST.ALLOW_LOAD_FROM_CACHE and output_folder is not None and os.path.exists(os.path.join(output_folder, "eval_results.pytorch"))
+    # convert to a torch.device for efficiency
+    device = torch.device(device)
+    num_devices = get_world_size()
+
+    if logger is None:
+        logger = logging.getLogger("maskrcnn_benchmark.inference")
+    dataset = data_loader.dataset
+    
+    logger.info("Start evaluation on {} dataset({} images).".format(dataset_name, len(dataset)))
+    total_timer = Timer()
+    inference_timer = Timer()
+    total_timer.tic()
+
+    if load_prediction_from_cache:
+        predictions = torch.load(os.path.join(output_folder, "eval_results.pytorch"), map_location=torch.device("cpu"))['predictions']
+    else:
+        predictions = compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loader, device, 
+                                        cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
+                                        synchronize_gather=cfg.TEST.RELATION.SYNC_GATHER, timer=inference_timer, dev_run=cfg.MODEL.DEV_RUN)
+    
     # wait for all processes to complete before measuring the time
     synchronize()
     total_time = total_timer.toc()
