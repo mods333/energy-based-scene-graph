@@ -175,15 +175,15 @@ def train(cfg, local_rank, distributed, logger):
         arguments["iteration"] = iteration
 
         base_model.eval()
+        energy_model.train()
+
         fix_eval_modules(eval_modules)
 
         images = images.to(device)
         targets = [target.to(device) for target in targets]
 
         detections = base_model(images, targets)
-
         pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES)
-
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES)
 
         # import ipdb; ipdb.set_trace()
@@ -192,12 +192,16 @@ def train(cfg, local_rank, distributed, logger):
 
         loss_dict = loss_function(cfg, positive_energy, negative_energy)
         losses = sum(loss for loss in loss_dict.values())
-        
+        if get_rank() == 0:
+            log_dict = {k: v.item() for k, v in loss_dict.items()}
+            wandb.log(log_dict)
+
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = reduce_loss_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
         meters.update(loss=losses_reduced, **loss_dict_reduced)
 
+        
         energy_optimizer.zero_grad()
         # Note: If mixed precision is not used, this ends up doing nothing
         # Otherwise apply loss scaling for mixed-precision recipe
@@ -237,7 +241,7 @@ def train(cfg, local_rank, distributed, logger):
                 )
             )
 
-        if iteration % checkpoint_period == 0:
+        if iteration % checkpoint_period == 0 or cfg.MODEL.DEV_RUN:
             checkpointer.save("model_{:07d}".format(iteration), **arguments)
         if iteration == max_iter:
             checkpointer.save("model_final", **arguments)
@@ -410,18 +414,20 @@ def main():
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
 
+    output_dir = cfg.OUTPUT_DIR
+    if output_dir:
+        mkdir(output_dir)
+        
     statistics = get_dataset_statistics(cfg)
     cfg.DATASETS.NUM_OBJ_CLASSES = len(statistics['obj_classes'])
     cfg.DATASETS.NUM_REL_CLASSES = len(statistics['rel_classes'])
 
     cfg.freeze()
 
-    output_dir = cfg.OUTPUT_DIR
-    if output_dir:
-        mkdir(output_dir)
+    
 
-    # if get_rank() == 0:
-    #     wandb.init(project="sgebm")
+    if get_rank() == 0:
+        wandb.init(project="sgebm")
     
     logger = setup_logger("maskrcnn_benchmark", output_dir, get_rank())
     logger.info("Using {} GPUs".format(num_gpus))

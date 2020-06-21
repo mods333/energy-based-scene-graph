@@ -271,10 +271,10 @@ class EBMCheckpointer(object):
         if not only_base:
             self._load_energy_model(checkpoint)
         if with_optim:
-            if "base_optimizer" in checkpoint and self.optimizer:
+            if "base_optimizer" in checkpoint and self.base_optimizer:
                 self.logger.info("Loading base_optimizer from {}".format(f))
                 self.base_optimizer.load_state_dict(checkpoint.pop("base_optimizer"))
-            if "energy_optimizer" in checkpoint and self.optimizer:
+            if "energy_optimizer" in checkpoint and self.energy_optimizer:
                 self.logger.info("Loading energy_optimizer from {}".format(f))
                 self.energy_optimizer.load_state_dict(checkpoint.pop("energy_optimizer"))
 
