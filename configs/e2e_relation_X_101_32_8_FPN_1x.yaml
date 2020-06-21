@@ -92,7 +92,14 @@ MODEL:
       NUM_HEAD: 8
       KEY_DIM: 64
       VAL_DIM: 64
-      INNER_DIM: 2048 
+      INNER_DIM: 2048
+    ############### Parameters for Energy Model ##############
+    EBM:
+      OBJ_EMBED_DIM: 512
+      REL_EMBED_DIM: 512
+      OBJ_LABEL_EMBED_DIM: 512
+      REL_LABEL_EMBED_DIM: 512
+      POOLING_DIM: 512
 DATASETS:
   TRAIN: ("VG_stanford_filtered_with_attribute_train",)
   VAL: ("VG_stanford_filtered_with_attribute_val",)

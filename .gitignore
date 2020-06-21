@@ -29,7 +29,9 @@ checkpoints
 # MacOS
 .DS_Store
 
-#Trianing script
+#VSCODE
+workspace.code-workspace
+#Trainin scripts
 *.sh
 #Dataset
 VG_100K

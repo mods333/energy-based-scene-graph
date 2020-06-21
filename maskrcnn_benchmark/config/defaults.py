@@ -31,6 +31,7 @@ _C.MODEL.RELATION_ON = False
 _C.MODEL.DEVICE = "cuda"
 _C.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
 _C.MODEL.CLS_AGNOSTIC_BBOX_REG = False
+_C.MODEL.DEV_RUN = False
 
 # If the WEIGHT starts with a catalog://, like :R-50, the code will look for
 # the path in paths_catalog. Else, it will use it as the specified absolute
@@ -39,6 +40,26 @@ _C.MODEL.WEIGHT = ""
 
 # checkpoint of detector, for relation prediction
 _C.MODEL.PRETRAINED_DETECTOR_CKPT = ""
+
+# -----------------------------------------------------------------------------
+# ENERGY MODEL
+# -----------------------------------------------------------------------------
+_C.ENERGY_MODEL = CN()
+_C.ENERGY_MODEL.META_ARCHITECTURE = "GraphEnergyModel"
+_C.ENERGY_MODEL.TRAINIG_MODE = "joint"
+_C.ENERGY_MODEL.LOSS = 'ContrastiveDivergence' 
+_C.ENERGY_MODEL.L2COEFF = 1
+_C.ENERGY_MODEL.TEMP = 1
+
+# -----------------------------------------------------------------------------
+# SAMPLER
+# -----------------------------------------------------------------------------
+_C.SAMPLER = CN()
+_C.SAMPLER.NAME = 'SGLD'
+_C.SAMPLER.LR = 0.01
+_C.SAMPLER.VAR = 0.001
+_C.SAMPLER.ITERS = 10
+_C.SAMPLER.GRAD_CLIP = 0.01
 
 # -----------------------------------------------------------------------------
 # INPUT
@@ -78,6 +99,9 @@ _C.DATASETS.TRAIN = ()
 _C.DATASETS.VAL = ()
 # List of the dataset names for testing, as present in paths_catalog.py
 _C.DATASETS.TEST = ()
+
+_C.DATASETS.NUM_OBJ_CLASSES = -1
+_C.DATASETS.NUM_REL_CLASSES = -1
 
 # -----------------------------------------------------------------------------
 # DataLoader
@@ -333,6 +357,15 @@ _C.MODEL.ROI_RELATION_HEAD.CAUSAL.SEPARATE_SPATIAL = False
 _C.MODEL.ROI_RELATION_HEAD.CAUSAL.SPATIAL_FOR_VISION = False
 
 _C.MODEL.ROI_RELATION_HEAD.CAUSAL.EFFECT_TYPE = 'none' # 'TDE', 'TIE', 'TE'
+
+####################################################################
+#EBM
+_C.MODEL.ROI_RELATION_HEAD.EBM = CN()
+_C.MODEL.ROI_RELATION_HEAD.EBM.OBJ_EMBED_DIM = 512
+_C.MODEL.ROI_RELATION_HEAD.EBM.REL_EMBED_DIM = 512
+_C.MODEL.ROI_RELATION_HEAD.EBM.OBJ_LABEL_EMBED_DIM = 512
+_C.MODEL.ROI_RELATION_HEAD.EBM.REL_LABEL_EMBED_DIM = 512
+_C.MODEL.ROI_RELATION_HEAD.EBM.POOLING_DIM = 512
 
 # proportion of predicates
 _C.MODEL.ROI_RELATION_HEAD.REL_PROP = [0.01858, 0.00057, 0.00051, 0.00109, 0.00150, 0.00489, 0.00432, 0.02913, 0.00245, 0.00121, 
