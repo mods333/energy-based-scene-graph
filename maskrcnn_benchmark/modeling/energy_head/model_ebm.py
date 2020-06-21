@@ -28,15 +28,13 @@ class GraphEnergyModel(nn.Module):
         in_channels: Dimension for features extracted form the detector
     '''
 
-    def __init__(self, config, obj_classes, rel_classes, in_channels):
+    def __init__(self, config, in_channels):
 
         super(GraphEnergyModel, self).__init__()
         self.config = config
 
-        self.obj_classes = obj_classes
-        self.rel_classes = rel_classes
-        self.num_obj_classes = len(obj_classes)
-        self.num_rel_classes = len(rel_classes)
+        self.num_obj_classes = config.DATASETS.NUM_OBJ_CLASSES
+        self.num_rel_classes = config.DATASETS.NUM_REL_CLASSES
 
         self.obj_embed_dim = self.config.MODEL.ROI_RELATION_HEAD.EBM.OBJ_EMBED_DIM
         self.rel_embed_dim = self.config.MODEL.ROI_RELATION_HEAD.EBM.REL_EMBED_DIM

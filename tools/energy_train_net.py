@@ -21,9 +21,11 @@ from maskrcnn_benchmark.data import make_data_loader, get_dataset_statistics
 from maskrcnn_benchmark.solver import make_lr_scheduler
 from maskrcnn_benchmark.solver import make_optimizer
 from maskrcnn_benchmark.engine.trainer import reduce_loss_dict
-from maskrcnn_benchmark.engine.inference import inference
+from maskrcnn_benchmark.engine.inference import inference, energy_inference
 from maskrcnn_benchmark.modeling.detector import build_detection_model
 from maskrcnn_benchmark.modeling.energy_head import build_energy_model
+from maskrcnn_benchmark.modeling.energy_head import detection2graph, gt2graph
+from maskrcnn_benchmark.modeling.energy_head import build_loss_function, build_sampler
 from maskrcnn_benchmark.utils.checkpoint import EBMCheckpointer
 from maskrcnn_benchmark.utils.checkpoint import clip_grad_norm
 from maskrcnn_benchmark.utils.collect_env import collect_env_info
@@ -47,10 +49,12 @@ def train(cfg, local_rank, distributed, logger):
     debug_print(logger, 'prepare training')
     base_model = build_detection_model(cfg) 
     debug_print(logger, 'end base model construction')
-    statistics = get_dataset_statistics(cfg)
-    energy_model = build_energy_model(cfg, statistics['obj_classes'], statistics['rel_classes'], base_model.backbone.out_channels)
+    
+    energy_model = build_energy_model(cfg, base_model.roi_heads.relation.box_feature_extractor.out_channels)
     debug_print(logger, 'End energy Model Constructin')
     
+    sampler = build_sampler(cfg)
+    loss_function = build_loss_function(cfg)
     # modules that should be always set in eval mode
     # their eval() method should be called after model.train() is called
     
@@ -150,8 +154,8 @@ def train(cfg, local_rank, distributed, logger):
     
     if cfg.SOLVER.PRE_VAL:
         logger.info("Validate base model before training")
-        run_val(cfg, base_model, val_data_loaders, distributed, logger)
-
+        # run_val(cfg, base_model, val_data_loaders, distributed, logger)
+        run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, distributed, logger)
     
     logger.info("Start training")
     meters = MetricLogger(delimiter="  ")
@@ -160,7 +164,7 @@ def train(cfg, local_rank, distributed, logger):
     start_training_time = time.time()
     end = time.time()
 
-    import ipdb; ipdb.set_trace()
+    
     print_first_grad = True
     for iteration, (images, targets, _) in enumerate(train_data_loader, start_iter):
 
@@ -170,33 +174,42 @@ def train(cfg, local_rank, distributed, logger):
         iteration = iteration + 1
         arguments["iteration"] = iteration
 
-        base_model.train()
+        base_model.eval()
         fix_eval_modules(eval_modules)
 
         images = images.to(device)
         targets = [target.to(device) for target in targets]
 
-        loss_dict, _ = base_model(images, targets)
+        detections = base_model(images, targets)
 
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES)
+
+        gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES)
+
+        # import ipdb; ipdb.set_trace()
+        positive_energy = energy_model(gt_im_graph, gt_scene_graph, pred_bbox)
+        negative_energy = energy_model(pred_im_graph, pred_scene_graph, gt_bbox)
+
+        loss_dict = loss_function(cfg, positive_energy, negative_energy)
         losses = sum(loss for loss in loss_dict.values())
-
+        
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = reduce_loss_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
         meters.update(loss=losses_reduced, **loss_dict_reduced)
 
-        optimizer.zero_grad()
+        energy_optimizer.zero_grad()
         # Note: If mixed precision is not used, this ends up doing nothing
         # Otherwise apply loss scaling for mixed-precision recipe
-        with amp.scale_loss(losses, optimizer) as scaled_losses:
+        with amp.scale_loss(losses, energy_optimizer) as scaled_losses:
             scaled_losses.backward()
-        
+
         # add clip_grad_norm from MOTIFS, tracking gradient, used for debug
         verbose = (iteration % cfg.SOLVER.PRINT_GRAD_FREQ) == 0 or print_first_grad # print grad or not
         print_first_grad = False
-        clip_grad_norm([(n, p) for n, p in model.named_parameters() if p.requires_grad], max_norm=cfg.SOLVER.GRAD_NORM_CLIP, logger=logger, verbose=verbose, clip=True)
+        clip_grad_norm([(n, p) for n, p in energy_model.named_parameters() if p.requires_grad], max_norm=cfg.SOLVER.GRAD_NORM_CLIP, logger=logger, verbose=verbose, clip=True)
 
-        optimizer.step()
+        energy_optimizer.step()
 
         batch_time = time.time() - end
         end = time.time()
@@ -219,7 +232,7 @@ def train(cfg, local_rank, distributed, logger):
                     eta=eta_string,
                     iter=iteration,
                     meters=str(meters),
-                    lr=optimizer.param_groups[-1]["lr"],
+                    lr=energy_optimizer.param_groups[-1]["lr"],
                     memory=torch.cuda.max_memory_allocated() / 1024.0 / 1024.0,
                 )
             )
@@ -232,18 +245,23 @@ def train(cfg, local_rank, distributed, logger):
         val_result = None # used for scheduler updating
         if cfg.SOLVER.TO_VAL and iteration % cfg.SOLVER.VAL_PERIOD == 0:
             logger.info("Start validating")
-            val_result = run_val(cfg, model, val_data_loaders, distributed, logger)
+            val_result = run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders,
+                                        distributed, logger)
+
             logger.info("Validation Result: %.4f" % val_result)
  
         # scheduler should be called after optimizer.step() in pytorch>=1.1.0
         # https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
         if cfg.SOLVER.SCHEDULE.TYPE == "WarmupReduceLROnPlateau":
-            scheduler.step(val_result, epoch=iteration)
-            if scheduler.stage_count >= cfg.SOLVER.SCHEDULE.MAX_DECAY_STEP:
+            energy_scheduler.step(val_result, epoch=iteration)
+            if energy_scheduler.stage_count >= cfg.SOLVER.SCHEDULE.MAX_DECAY_STEP:
                 logger.info("Trigger MAX_DECAY_STEP at iteration {}.".format(iteration))
                 break
         else:
-            scheduler.step()
+            energy_scheduler.step()
+        
+        if cfg.MODEL.DEV_RUN:
+            break
 
     total_training_time = time.time() - start_training_time
     total_time_str = str(datetime.timedelta(seconds=total_training_time))
@@ -252,7 +270,7 @@ def train(cfg, local_rank, distributed, logger):
             total_time_str, total_training_time / (max_iter)
         )
     )
-    return model
+    return base_model, energy_model, sampler
 
 def fix_eval_modules(eval_modules):
     for module in eval_modules:
@@ -260,9 +278,11 @@ def fix_eval_modules(eval_modules):
             param.requires_grad = False
         # DO NOT use module.eval(), otherwise the module will be in the test mode, i.e., all self.training condition is set to False
 
-def run_val(cfg, model, val_data_loaders, distributed, logger):
+def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, distributed, logger):
     if distributed:
-        model = model.module
+        base_model = base_model.module
+        energy_model = energy_model.module
+
     torch.cuda.empty_cache()
     iou_types = ("bbox",)
     if cfg.MODEL.MASK_ON:
@@ -277,9 +297,11 @@ def run_val(cfg, model, val_data_loaders, distributed, logger):
     dataset_names = cfg.DATASETS.VAL
     val_result = []
     for dataset_name, val_data_loader in zip(dataset_names, val_data_loaders):
-        dataset_result = inference(
+        dataset_result = energy_inference(
                             cfg,
-                            model,
+                            base_model,
+                            energy_model,
+                            sampler,
                             val_data_loader,
                             dataset_name=dataset_name,
                             iou_types=iou_types,
@@ -302,9 +324,12 @@ def run_val(cfg, model, val_data_loaders, distributed, logger):
     torch.cuda.empty_cache()
     return val_result
 
-def run_test(cfg, model, distributed, logger):
+def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
+    
     if distributed:
-        model = model.module
+        base_model = base_model.module
+        energy_model = energy_model.module
+
     torch.cuda.empty_cache()
     iou_types = ("bbox",)
     if cfg.MODEL.MASK_ON:
@@ -315,18 +340,24 @@ def run_test(cfg, model, distributed, logger):
         iou_types = iou_types + ("relations", )
     if cfg.MODEL.ATTRIBUTE_ON:
         iou_types = iou_types + ("attributes", )
+    
     output_folders = [None] * len(cfg.DATASETS.TEST)
     dataset_names = cfg.DATASETS.TEST
+    
     if cfg.OUTPUT_DIR:
         for idx, dataset_name in enumerate(dataset_names):
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference", dataset_name)
             mkdir(output_folder)
             output_folders[idx] = output_folder
+    
     data_loaders_val = make_data_loader(cfg, mode='test', is_distributed=distributed)
+    
     for output_folder, dataset_name, data_loader_val in zip(output_folders, dataset_names, data_loaders_val):
-        inference(
+        energy_inference(
             cfg,
-            model,
+            base_model,
+            energy_model,
+            sampler,
             data_loader_val,
             dataset_name=dataset_name,
             iou_types=iou_types,
@@ -337,6 +368,7 @@ def run_test(cfg, model, distributed, logger):
             output_folder=output_folder,
             logger=logger,
         )
+        
         synchronize()
 
 
@@ -377,6 +409,11 @@ def main():
 
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
+
+    statistics = get_dataset_statistics(cfg)
+    cfg.DATASETS.NUM_OBJ_CLASSES = len(statistics['obj_classes'])
+    cfg.DATASETS.NUM_REL_CLASSES = len(statistics['rel_classes'])
+
     cfg.freeze()
 
     output_dir = cfg.OUTPUT_DIR
@@ -404,10 +441,10 @@ def main():
     # save overloaded model config in the output directory
     save_config(cfg, output_config_path)
 
-    model = train(cfg, args.local_rank, args.distributed, logger)
-
+    base_model, energy_model, sampler = train(cfg, args.local_rank, args.distributed, logger)
+    
     if not args.skip_test:
-        run_test(cfg, model, args.distributed, logger)
+        run_test(cfg, base_model, energy_model, sampler, args.distributed, logger)
 
 
 if __name__ == "__main__":
