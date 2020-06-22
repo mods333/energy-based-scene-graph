@@ -86,36 +86,41 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
             # output = [o.to(cpu_device) for o in output]
         
         #MCMC refinement
-        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images.to(device), output, base_model, num_obj_classes)
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images.to(device), output, base_model, num_obj_classes, mode)
         
         pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode)
 
-        rel_offset = 0
-        obj_offset = 0
-
+        # rel_offset = 0
+        # obj_offset = 0
+        
         if mode == 'predcls':
-            for o in output:
-                num_rels = o.extra_fields['pred_rel_scores'].shape[0]
-                o.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states[rel_offset : rel_offset + num_rels]
-                rel_offset += num_rels
+            num_rels = [r.shape[0] for r in output[0]]
+            relation_logits = pred_scene_graph.edge_states.split(num_rels)
+            object_logits = output[1]
 
         else:
-            for o in output:
-                num_rels = o.extra_fields['pred_rel_scores'].shape[0]
-                num_objs = o.bbox.shape[0]
+            num_rels = [r.shape[0] for r in output[0]]
+            num_objs = [o.shape[0] for o in output[1]]
+            relation_logits = pred_scene_graph.edge_states.split(num_rels)
+            object_logits = pred_scene_graph.node_states.split(num_objs)
+            # output[0] = pred_scene_graph.edge_states.split(num_rels)
+            # output[1] = pred_scene_graph.node_states.split(num_objs)
 
-                o.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states[rel_offset : rel_offset + num_rels]
-                o.extra_fields['predict_logits'] = pred_scene_graph.node_states[obj_offset: obj_offset + num_objs]
+            # for i in range(len(output[0])):
+            #     output[0][i] = pred_scene_graph.edge_states[i]
+            #     output[1][i] = pred_scene_graph.node_states[i]
+            # for o in output:
+            #     num_rels = o.extra_fields['pred_rel_scores'].shape[0]
+            #     num_objs = o.bbox.shape[0]
 
-                rel_offset += num_rels
-                obj_offset += num_objs
+            #     o.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states[rel_offset : rel_offset + num_rels]
+            #     o.extra_fields['predict_logits'] = pred_scene_graph.node_states[obj_offset: obj_offset + num_objs]
 
-        # #Update detections
-        # if mode == 'predcls':
-        #     output.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states
-        # else:
-        #     output.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states
-        #     output.extra_fields['predict_logits'] = pred_scene_graph.node_states
+            #     rel_offset += num_rels
+            #     obj_offset += num_objs
+
+        #Post processing
+        output = energy_model.post_processor((relation_logits, object_logits), output[2], output[3])
         
         output = [o.to(cpu_device) for o in output]
 

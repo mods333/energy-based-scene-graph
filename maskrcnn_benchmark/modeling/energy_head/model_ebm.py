@@ -6,7 +6,7 @@ from torch.nn import functional as F
 from maskrcnn_benchmark.modeling import registry
 from maskrcnn_benchmark.modeling.make_layers import make_fc
 from maskrcnn_benchmark.modeling.utils import cat
-
+from maskrcnn_benchmark.modeling.roi_heads.relation_head.inference import make_roi_relation_post_processor
 from .layers import EGNNLayer, GNNLayer
 from .pooling import GatedPooling, EdgeGatedPooling
 
@@ -85,6 +85,8 @@ class GraphEnergyModel(nn.Module):
             nn.ReLU(), 
             nn.Linear(self.pooling_dim, 1)
         )
+
+        self.post_processor = make_roi_relation_post_processor(config)
     # def get_contiguous_rel_pair_idx(self, rel_pair_idxs, proposals):
     #     '''
     #     This function converts the list of rel_pair_idxs into a single tensor 
