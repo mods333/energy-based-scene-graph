@@ -79,3 +79,14 @@ def bbox_overlaps(boxes1, boxes2):
     boxes2 = BoxList(boxes2, (0, 0), 'xyxy')
     iou = boxlist_iou(boxes1, boxes2).cpu().numpy()
     return iou
+
+def get_mode(cfg):
+    if cfg.MODEL.ROI_RELATION_HEAD.USE_GT_BOX:
+        if cfg.MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL:
+            mode = 'predcls'
+        else:
+            mode = 'sgcls'
+    else:
+        mode = 'sgdet'
+    
+    return mode

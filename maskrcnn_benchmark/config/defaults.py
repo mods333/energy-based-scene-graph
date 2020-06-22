@@ -56,7 +56,7 @@ _C.ENERGY_MODEL.TEMP = 1
 # -----------------------------------------------------------------------------
 _C.SAMPLER = CN()
 _C.SAMPLER.NAME = 'SGLD'
-_C.SAMPLER.LR = 0.01
+_C.SAMPLER.LR = 0.1
 _C.SAMPLER.VAR = 0.001
 _C.SAMPLER.ITERS = 10
 _C.SAMPLER.GRAD_CLIP = 0.01
