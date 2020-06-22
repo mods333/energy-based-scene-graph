@@ -31,7 +31,7 @@ class SGLD(object):
 
                 scene_graph.edge_states.detach()
                 # scene_graph.edge_states = F.softmax(scene_graph.edge_states, dim=1)
-                scene_graph.edge_states = scene_graph.edge_states/torch.sum(scene_graph.edge_states, dim=1,  keepdim=True)
+                # scene_graph.edge_states = scene_graph.edge_states/torch.sum(scene_graph.edge_states, dim=1,  keepdim=True)
         else:
             noise = torch.rand_like(scene_graph.edge_states)
             noise2 = torch_rand_like(scene_graph.node_states)
@@ -50,8 +50,8 @@ class SGLD(object):
                 scene_graph.edge_states.data.add_(edge_states_grads, alpha=-self.sgld_lr)
                 scene_graph,node_states.data.add_(node_states_grads, alpha=-self.sgld_lr)
 
-                scene_graph.edge_states = scene_graph.edge_states/torch.sum(scene_graph.edge_states, dim=1,  keepdim=True)
-                scene_graph.node_states = scene_graph.node_states/torch.sum(scene_graph.node_states, dim=1,  keepdim=True)
+                # scene_graph.edge_states = scene_graph.edge_states/torch.sum(scene_graph.edge_states, dim=1,  keepdim=True)
+                # scene_graph.node_states = scene_graph.node_states/torch.sum(scene_graph.node_states, dim=1,  keepdim=True)
 
                 scene_graph.edge_states.detach()
                 scene_graph.node_states.detach()
