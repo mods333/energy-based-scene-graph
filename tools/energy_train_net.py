@@ -32,7 +32,7 @@ from maskrcnn_benchmark.utils.collect_env import collect_env_info
 from maskrcnn_benchmark.utils.comm import synchronize, get_rank, all_gather
 from maskrcnn_benchmark.utils.imports import import_file
 from maskrcnn_benchmark.utils.logger import setup_logger, debug_print
-from maskrcnn_benchmark.utils.miscellaneous import mkdir, save_config
+from maskrcnn_benchmark.utils.miscellaneous import mkdir, save_config, get_mode
 from maskrcnn_benchmark.utils.metric_logger import MetricLogger
 
 
@@ -53,6 +53,7 @@ def train(cfg, local_rank, distributed, logger):
     energy_model = build_energy_model(cfg, base_model.roi_heads.relation.box_feature_extractor.out_channels)
     debug_print(logger, 'End energy Model Constructin')
     
+    mode = get_mode(cfg)
     sampler = build_sampler(cfg)
     loss_function = build_loss_function(cfg)
     # modules that should be always set in eval mode
@@ -183,9 +184,8 @@ def train(cfg, local_rank, distributed, logger):
         targets = [target.to(device) for target in targets]
 
         detections = base_model(images, targets)
-        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES)
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, mode)
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES)
-
         # import ipdb; ipdb.set_trace()
         positive_energy = energy_model(gt_im_graph, gt_scene_graph, pred_bbox)
         negative_energy = energy_model(pred_im_graph, pred_scene_graph, gt_bbox)
@@ -207,12 +207,10 @@ def train(cfg, local_rank, distributed, logger):
         # Otherwise apply loss scaling for mixed-precision recipe
         with amp.scale_loss(losses, energy_optimizer) as scaled_losses:
             scaled_losses.backward()
-
         # add clip_grad_norm from MOTIFS, tracking gradient, used for debug
         verbose = (iteration % cfg.SOLVER.PRINT_GRAD_FREQ) == 0 or print_first_grad # print grad or not
         print_first_grad = False
         clip_grad_norm([(n, p) for n, p in energy_model.named_parameters() if p.requires_grad], max_norm=cfg.SOLVER.GRAD_NORM_CLIP, logger=logger, verbose=verbose, clip=True)
-
         energy_optimizer.step()
 
         batch_time = time.time() - end
@@ -241,7 +239,7 @@ def train(cfg, local_rank, distributed, logger):
                 )
             )
 
-        if iteration % checkpoint_period == 0 or cfg.MODEL.DEV_RUN:
+        if iteration % checkpoint_period == 0:
             checkpointer.save("model_{:07d}".format(iteration), **arguments)
         if iteration == max_iter:
             checkpointer.save("model_final", **arguments)
@@ -424,9 +422,10 @@ def main():
 
     cfg.freeze()
 
-    
-
     if get_rank() == 0:
+        if cfg.MODEL.DEV_RUN:
+            os.environ['WANDB_MODE'] = 'dryrun'
+
         wandb.init(project="sgebm")
     
     logger = setup_logger("maskrcnn_benchmark", output_dir, get_rank())
