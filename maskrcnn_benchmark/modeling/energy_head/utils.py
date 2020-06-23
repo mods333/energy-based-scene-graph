@@ -68,6 +68,7 @@ def get_gt_scene_graph(targets, num_obj_classes, num_rel_classes):
         rel_list.append(rel[rel_pair_idxs[:,0], rel_pair_idxs[:,1]])
 
         batch_list.extend([i]*len(target))
+        # import ipdb; ipdb.set_trace()
         edge_batch_list.extend([i]*len(pair_list[-1]))
         offset += len(target)
 

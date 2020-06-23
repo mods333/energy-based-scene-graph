@@ -68,7 +68,7 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
     else:
         mode = 'sgdet'
 
-    for _, batch in enumerate(tqdm(data_loader)):
+    for itx, batch in enumerate(tqdm(data_loader)):
         with torch.no_grad():
             images, targets, image_ids = batch
             targets = [target.to(device) for target in targets]
@@ -134,8 +134,6 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
             results_dict.update(
                 {img_id: result for img_id, result in zip(image_ids, output)}
             )
-        if dev_run:
-            break
     torch.cuda.empty_cache()
     return results_dict
 

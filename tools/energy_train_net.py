@@ -101,12 +101,12 @@ def train(cfg, local_rank, distributed, logger):
     [base_model, energy_model] , energy_optimizer = amp.initialize([base_model, energy_model], energy_optimizer, opt_level=amp_opt_level)
 
     if distributed:
-        base_model = torch.nn.parallel.DistributedDataParallel(
-            base_model, device_ids=[local_rank], output_device=local_rank,
-            # this should be removed if we update BatchNorm stats
-            broadcast_buffers=False,
-            find_unused_parameters=True,
-        )
+        # base_model = torch.nn.parallel.DistributedDataParallel(
+        #     base_model, device_ids=[local_rank], output_device=local_rank,
+        #     # this should be removed if we update BatchNorm stats
+        #     broadcast_buffers=False,
+        #     find_unused_parameters=True,
+        # )
         energy_model = torch.nn.parallel.DistributedDataParallel(
             energy_model, device_ids=[local_rank], output_device=local_rank,
             # this should be removed if we update BatchNorm stats
@@ -186,19 +186,19 @@ def train(cfg, local_rank, distributed, logger):
         detections = base_model(images, targets)
         pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, mode)
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES)
-        # import ipdb; ipdb.set_trace()
-        positive_energy = energy_model(gt_im_graph, gt_scene_graph, pred_bbox)
-        negative_energy = energy_model(pred_im_graph, pred_scene_graph, gt_bbox)
+        positive_energy = energy_model(gt_im_graph, gt_scene_graph, gt_bbox)
+        negative_energy = energy_model(pred_im_graph, pred_scene_graph, pred_bbox)
 
         loss_dict = loss_function(cfg, positive_energy, negative_energy)
         losses = sum(loss for loss in loss_dict.values())
         if get_rank() == 0:
             log_dict = {k: v.item() for k, v in loss_dict.items()}
             wandb.log(log_dict)
-
+            wandb.log({'Positive Energy': positive_energy.mean().item(), 'Negative Energy': negative_energy.mean().item()})
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = reduce_loss_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
+        # print("Loss >> {}".format(losses_reduced))
         meters.update(loss=losses_reduced, **loss_dict_reduced)
 
         
@@ -282,7 +282,7 @@ def fix_eval_modules(eval_modules):
 
 def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, distributed, logger):
     if distributed:
-        base_model = base_model.module
+        # base_model = base_model.module
         energy_model = energy_model.module
 
     torch.cuda.empty_cache()
@@ -329,7 +329,7 @@ def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, dis
 def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
     
     if distributed:
-        base_model = base_model.module
+        # base_model = base_model.module
         energy_model = energy_model.module
 
     torch.cuda.empty_cache()

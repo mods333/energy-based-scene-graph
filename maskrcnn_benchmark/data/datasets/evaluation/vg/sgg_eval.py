@@ -359,6 +359,7 @@ def _triplet(relations, classes, boxes, predicate_scores=None, class_scores=None
         triplets_scores (#rel, 3) : (sub_score, pred_score, ob_score)
     """
     sub_id, ob_id, pred_label = relations[:, 0], relations[:, 1], relations[:, 2]
+    # print("<<<<<<<<<<<<<<<<< sub_id :{}, obj_id:{}, pred_label:{}, classes:{} >>>>>>>>>>>>>>>>>>>>>>>".format(sub_id.shape, ob_id.shape, pred_label.shape, classes.shape))
     triplets = np.column_stack((classes[sub_id], pred_label, classes[ob_id]))
     triplet_boxes = np.column_stack((boxes[sub_id], boxes[ob_id]))
 

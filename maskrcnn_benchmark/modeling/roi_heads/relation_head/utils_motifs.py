@@ -89,7 +89,7 @@ def sort_by_score(proposals, scores):
     return perm, inv_perm, ls_transposed
 
 
-def to_onehot(vec, num_classes, fill=1000):
+def to_onehot(vec, num_classes, fill=1):
     """
     Creates a [size, num_classes] torch FloatTensor where
     one_hot[i, vec[i]] = fill
