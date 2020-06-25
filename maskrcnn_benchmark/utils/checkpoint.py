@@ -327,5 +327,6 @@ class EBMCheckpointer(object):
         load_state_dict(self.base_model, checkpoint.pop(key), load_mapping)
 
     def _load_energy_model(self, checkpoint):
-        self.energy_model.load_state_dict(checkpoint.pop("energy_model"))
+        load_state_dict(self.energy_model, checkpoint.pop("energy_model"), {})
+        # self.energy_model.load_state_dict(checkpoint.pop("energy_model"))
         
