@@ -193,11 +193,10 @@ def train(cfg, local_rank, distributed, logger):
         targets = [target.to(device) for target in targets]
 
         loss_dict, detections = base_model(images, targets)
-        # import ipdb; ipdb.set_trace()
+        
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, 
                                                         cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
                                                         cfg.ENERGY_MODEL.DATA_NOISE_VAR)
-
         pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, mode)
         
         #MCMC Step for Contrastive Loss
@@ -231,7 +230,7 @@ def train(cfg, local_rank, distributed, logger):
 
         # Note: If mixed precision is not used, this ends up doing nothing
         # Otherwise apply loss scaling for mixed-precision recipe
-        with amp.scale_loss(losses, energy_optimizer) as scaled_losses:
+        with amp.scale_loss(losses, [base_optimizer, energy_optimizer]) as scaled_losses:
             scaled_losses.backward()
         # add clip_grad_norm from MOTIFS, tracking gradient, used for debug
         verbose = (iteration % cfg.SOLVER.PRINT_GRAD_FREQ) == 0 or print_first_grad # print grad or not
@@ -461,7 +460,7 @@ def main():
     ###################################################################################################
     #Wandb Setup
     if get_rank() == 0:
-        if cfg.MODEL.DEV_RUN:
+        if cfg.MODEL.DEV_RUN or cfg.WANDB.MUTE:
             os.environ['WANDB_MODE'] = 'dryrun'
 
         wandb.init(project="sgebm")
