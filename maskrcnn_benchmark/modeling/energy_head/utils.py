@@ -29,10 +29,12 @@ def get_predicted_sg(detections, num_obj_classes, mode):
     #     node_key = 'pred_labels'
     #     is_logits = False
     rel_list = detections[0]
-    rel_list = [x - torch.min(x) for x in rel_list]
-    rel_list = [x/torch.max(x) for x in rel_list]
+    # rel_list = [x - torch.min(x) for x in rel_list]
+    # rel_list = [x/torch.max(x) for x in rel_list]
     # rel_list = [x[x<0]/torch.min(x).abs() for x in rel_list]
     rel_list = torch.cat(rel_list, dim= 0)
+    rel_list = (rel_list - torch.min(rel_list, dim=-1, keepdim=True)[0])
+    rel_list = rel_list/torch.max(rel_list, dim=1, keepdim=True)[0]
     
     node_list = torch.cat(detections[1], dim= 0)
     
