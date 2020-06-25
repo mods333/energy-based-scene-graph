@@ -86,7 +86,7 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
             # output = [o.to(cpu_device) for o in output]
         
         #MCMC refinement
-        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images.to(device), output, base_model, num_obj_classes, mode)
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images.to(device), output, base_model, num_obj_classes, mode, cfg.ENERGY_MODEL.DATA_NOISE_VAR)
         
         pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode)
 

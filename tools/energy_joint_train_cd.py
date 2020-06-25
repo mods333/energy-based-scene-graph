@@ -115,6 +115,10 @@ def train(cfg, local_rank, distributed, logger):
             broadcast_buffers=False,
             find_unused_parameters=True,
         )
+        base_model_module = base_model.module
+    else:
+        base_model_module = base_model
+
     debug_print(logger, 'end distributed')
     ###################################################################################################
     ###################################################################################################
@@ -194,10 +198,10 @@ def train(cfg, local_rank, distributed, logger):
 
         loss_dict, detections = base_model(images, targets)
         
-        gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, 
+        gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model_module, 
                                                         cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
                                                         cfg.ENERGY_MODEL.DATA_NOISE_VAR)
-        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, 
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model_module, 
                                                                     cfg.DATASETS.NUM_OBJ_CLASSES, mode, 
                                                                     cfg.ENERGY_MODEL.DATA_NOISE_VAR)
         
@@ -317,7 +321,7 @@ def fix_eval_modules(eval_modules):
 
 def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, distributed, logger):
     if distributed:
-        # base_model = base_model.module
+        base_model = base_model.module
         energy_model = energy_model.module
 
     torch.cuda.empty_cache()
@@ -364,7 +368,7 @@ def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, dis
 def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
     
     if distributed:
-        # base_model = base_model.module
+        base_model = base_model.module
         energy_model = energy_model.module
 
     torch.cuda.empty_cache()
@@ -404,6 +408,7 @@ def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
             expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
             output_folder=output_folder,
             logger=logger,
+            # is_distributed=distributed
         )
         
         synchronize()
