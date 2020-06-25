@@ -215,10 +215,10 @@ def make_data_loader(cfg, mode='train', is_distributed=False, start_iter=0):
 
     data_loaders = []
     for dataset in datasets:
-        print('============')
-        print(len(dataset))
-        print(images_per_gpu)
-        print('============')
+        # print('============')
+        # print(len(dataset))
+        # print(images_per_gpu)
+        # print('============')
         sampler = make_data_sampler(dataset, shuffle, is_distributed)
         batch_sampler = make_batch_data_sampler(
             dataset, sampler, aspect_grouping, images_per_gpu, num_iters, start_iter

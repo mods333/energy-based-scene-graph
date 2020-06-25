@@ -186,6 +186,8 @@ def train(cfg, local_rank, distributed, logger):
         detections = base_model(images, targets)
         pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, mode)
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES)
+        import ipdb; ipdb.set_trace()
+        
         positive_energy = energy_model(gt_im_graph, gt_scene_graph, gt_bbox)
         negative_energy = energy_model(pred_im_graph, pred_scene_graph, pred_bbox)
 
@@ -427,6 +429,7 @@ def main():
             os.environ['WANDB_MODE'] = 'dryrun'
 
         wandb.init(project="sgebm")
+        wandb.config.update(cfg)
     
     logger = setup_logger("maskrcnn_benchmark", output_dir, get_rank())
     logger.info("Using {} GPUs".format(num_gpus))
