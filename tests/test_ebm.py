@@ -219,7 +219,7 @@ def main():
         #################################################################################################################################
         # Random Graph Initialization
         detections = base_model(images, targets)
-        edge_init = tuple([torch.rand_like(detections[0][i]).uniform_(-10,10) for i in range(len(detections[0]))])
+        edge_init = tuple([torch.rand_like(detections[0][i]).uniform_(-10,2) for i in range(len(detections[0]))])
         node_init = detections[1]
         pair_idx = detections[2]
         proposals = detections[3]

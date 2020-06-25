@@ -134,6 +134,8 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
             results_dict.update(
                 {img_id: result for img_id, result in zip(image_ids, output)}
             )
+        if itx== 5 and dev_run:
+            break
     torch.cuda.empty_cache()
     return results_dict
 

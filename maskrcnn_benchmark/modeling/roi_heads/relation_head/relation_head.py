@@ -93,7 +93,7 @@ class ROIRelationHead(torch.nn.Module):
 
         output_losses.update(add_losses)
 
-        return roi_features, proposals, output_losses
+        return roi_features, (relation_logits, refine_logits, rel_pair_idxs, proposals), output_losses
 
 
 def build_roi_relation_head(cfg, in_channels):

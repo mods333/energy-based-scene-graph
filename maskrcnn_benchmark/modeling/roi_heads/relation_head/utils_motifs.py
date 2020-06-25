@@ -99,7 +99,8 @@ def to_onehot(vec, num_classes, fill=1):
     :param fill: value that we want + and - things to be.
     :return: 
     """
-    onehot_result = vec.new(vec.size(0), num_classes).float().fill_(-fill)
+    # onehot_result = vec.new(vec.size(0), num_classes).float().fill_(-fill)
+    onehot_result = vec.new(vec.size(0), num_classes).float().fill_(0)
     arange_inds = vec.new(vec.size(0)).long()
     torch.arange(0, vec.size(0), out=arange_inds)
 

@@ -50,6 +50,7 @@ _C.ENERGY_MODEL.TRAINIG_MODE = "joint"
 _C.ENERGY_MODEL.LOSS = 'ContrastiveDivergence' 
 _C.ENERGY_MODEL.L2COEFF = 1
 _C.ENERGY_MODEL.TEMP = 1
+_C.ENERGY_MODEL.DATA_NOISE_VAR = 0.0001
 
 # -----------------------------------------------------------------------------
 # SAMPLER

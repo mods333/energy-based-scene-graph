@@ -12,10 +12,11 @@ class SGLD(object):
         self.sgld_var = float(cfg.SAMPLER.VAR)
         self.grad_clip = float(cfg.SAMPLER.GRAD_CLIP)
         self.iters = cfg.SAMPLER.ITERS
-    def sample(self, model, im_graph, scene_graph, bbox, mode):
+    def sample(self, model, im_graph, scene_graph, bbox, mode, joint=False):
 
         model.train()
-        scene_graph.requires_grad(mode) #For autograd
+        if not joint:
+            scene_graph.requires_grad(mode) #For autograd
         
         if mode == 'predcls':
             noise = torch.rand_like(scene_graph.edge_states)
