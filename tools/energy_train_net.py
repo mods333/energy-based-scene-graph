@@ -86,11 +86,11 @@ def train(cfg, local_rank, distributed, logger):
     num_batch = cfg.SOLVER.IMS_PER_BATCH
 
     #Build Optimier
-    # base_optimizer = make_optimizer(cfg, base_model, logger, slow_heads=slow_heads, slow_ratio=10.0, rl_factor=float(num_batch))
+    base_optimizer = make_optimizer(cfg, base_model, logger, slow_heads=slow_heads, slow_ratio=10.0, rl_factor=float(num_batch))
     energy_optimizer = make_optimizer(cfg, energy_model, logger, slow_heads=[], slow_ratio=10.0, rl_factor=float(num_batch))
 
     #Build scheduler
-    # base_scheduler = make_lr_scheduler(cfg, base_optimizer, logger)
+    base_scheduler = make_lr_scheduler(cfg, base_optimizer, logger)
     energy_scheduler = make_lr_scheduler(cfg, energy_optimizer, logger)
 
     debug_print(logger, 'end optimizer and scheduler')
