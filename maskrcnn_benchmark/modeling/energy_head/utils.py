@@ -10,7 +10,7 @@ from maskrcnn_benchmark.modeling.roi_heads.relation_head.utils_motifs import (
 import logging
 logger = logging.getLogger(__name__)
 
-def get_predicted_sg(detections, num_obj_classes, mode):
+def get_predicted_sg(detections, num_obj_classes, mode, noise_var):
     '''
     This function converts the detction in scene grpah strucuter 
     Parameters:
@@ -22,22 +22,19 @@ def get_predicted_sg(detections, num_obj_classes, mode):
     batch_list = []
     edge_batch_list = []
 
-    # if 'predict_logits' in detections[0].extra_fields.keys():
-    #     node_key = 'predict_logits'
-    #     is_logits = True
-    # else:
-    #     node_key = 'pred_labels'
-    #     is_logits = False
-    rel_list = detections[0]
-    # rel_list = [x - torch.min(x) for x in rel_list]
-    # rel_list = [x/torch.max(x) for x in rel_list]
-    # rel_list = [x[x<0]/torch.min(x).abs() for x in rel_list]
-    rel_list = torch.cat(rel_list, dim= 0)
+    ################################################################################################
+    rel_list = torch.cat(detections[0], dim= 0)
     rel_list = (rel_list - torch.min(rel_list, dim=-1, keepdim=True)[0])
     rel_list = rel_list/torch.max(rel_list, dim=1, keepdim=True)[0]
     
     node_list = torch.cat(detections[1], dim= 0)
-    
+    if mode == 'predcls':
+        #Add small noise to the input
+        node_noise = torch.rand_like(node_list).normal_(0, noise_var)
+        node_list.data.add_(node_noise)
+
+    ################################################################################################
+
     for i in range(len(detections[0])):
         pair_list.append(detections[2][i] + offset)
         batch_list.append(torch.full((detections[1][i].shape[0], ) , i, dtype=torch.long))
@@ -97,23 +94,27 @@ def get_gt_scene_graph(targets, num_obj_classes, num_rel_classes, noise_var):
     
     return node_list, rel_list,  pair_list, batch_list, edge_batch_list
 
-def get_gt_im_graph(images, detections, base_model):
+def get_gt_im_graph(images, detections, base_model, noise_var):
     #Extract region feature from the target bbox
     
     features = base_model.backbone(images.tensors)
     node_states = base_model.roi_heads.relation.box_feature_extractor(features, detections)
+    node_noise = torch.rand_like(node_states).normal_(0, noise_var)
+    node_states.data.add_(node_noise)
 
     return node_states
 
-def get_pred_im_graph(images, detections, base_model):
+def get_pred_im_graph(images, detections, base_model, noise_var):
     #Extract region feature from the predictions
 
     features = base_model.backbone(images.tensors)
     node_states = base_model.roi_heads.relation.box_feature_extractor(features, detections[-1])
-
+    node_noise = torch.rand_like(node_states).normal_(0, noise_var)
+    node_states.data.add_(node_noise)
+    
     return node_states
 
-def detection2graph(images, detections, base_model, num_obj_classes, mode):
+def detection2graph(images, detections, base_model, num_obj_classes, mode, noise_var):
 
     '''
     Create image graph and scene graph given the detections
@@ -130,10 +131,10 @@ def detection2graph(images, detections, base_model, num_obj_classes, mode):
     '''
     #Scene graph Creation
     
-    sg_node_states, sg_rel_states, adj_matrix, batch_list, edge_batch_list = get_predicted_sg(detections, num_obj_classes, mode)
+    sg_node_states, sg_rel_states, adj_matrix, batch_list, edge_batch_list = get_predicted_sg(detections, num_obj_classes, mode, noise_var)
         
     #Iage graph generation
-    im_node_states = get_pred_im_graph(images, detections, base_model)
+    im_node_states = get_pred_im_graph(images, detections, base_model, noise_var)
     
     scene_graph = Graph(sg_node_states, adj_matrix, batch_list, sg_rel_states, edge_batch_list)
     im_graph = Graph(im_node_states, adj_matrix, batch_list)
@@ -158,7 +159,7 @@ def gt2graph(images, targets, base_model, num_obj_classes, num_rel_classes, nois
 
     sg_node_states, sg_edge_states, adj_matrix, batch_list, edge_batch_list = get_gt_scene_graph(targets, num_obj_classes, num_rel_classes, noise_var)
 
-    im_node_states = get_gt_im_graph(images, targets, base_model)
+    im_node_states = get_gt_im_graph(images, targets, base_model, noise_var)
 
     sg_graph = Graph(sg_node_states, adj_matrix, batch_list, sg_edge_states, edge_batch_list)
     im_graph = Graph(im_node_states, adj_matrix, batch_list)

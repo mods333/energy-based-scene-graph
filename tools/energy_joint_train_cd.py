@@ -197,7 +197,9 @@ def train(cfg, local_rank, distributed, logger):
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model, 
                                                         cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
                                                         cfg.ENERGY_MODEL.DATA_NOISE_VAR)
-        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, mode)
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model, 
+                                                                    cfg.DATASETS.NUM_OBJ_CLASSES, mode, 
+                                                                    cfg.ENERGY_MODEL.DATA_NOISE_VAR)
         
         #MCMC Step for Contrastive Loss
         pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode, joint=True)
@@ -220,8 +222,8 @@ def train(cfg, local_rank, distributed, logger):
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = reduce_loss_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
-        # print("Loss >> {}".format(losses_reduced))
         meters.update(loss=losses_reduced, **loss_dict_reduced)
+        # print("Loss >> {}".format(loss_dict))
         ########################################################################
         ########################################################################
         #Optimizer Step
