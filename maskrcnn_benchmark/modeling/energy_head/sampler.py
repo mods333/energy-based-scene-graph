@@ -12,16 +12,17 @@ class SGLD(object):
         self.sgld_var = float(cfg.SAMPLER.VAR)
         self.grad_clip = float(cfg.SAMPLER.GRAD_CLIP)
         self.iters = cfg.SAMPLER.ITERS
-    def sample(self, model, im_graph, scene_graph, bbox, mode, joint=False):
+    def sample(self, model, im_graph, scene_graph, bbox, mode, set_grad=False):
 
         model.train()
-        if not joint:
-            scene_graph.requires_grad(mode) #For autograd
-        
+        if set_grad:
+            scene_graph.requires_grad(mode)
+
         if mode == 'predcls':
             noise = torch.rand_like(scene_graph.edge_states)
-
+            
             for _ in range(self.iters):
+                 #For autograd
                 noise.normal_(0, self.sgld_var)
                 scene_graph.edge_states.data.add_(noise.data)
 
@@ -29,16 +30,17 @@ class SGLD(object):
                 edge_states_grads.data.clamp_(-self.grad_clip, self.grad_clip)
                 
                 scene_graph.edge_states.data.add_(edge_states_grads, alpha=-self.sgld_lr)
-
-                scene_graph.edge_states.detach()
                 # scene_graph.edge_states = F.softmax(scene_graph.edge_states, dim=1)
                 # scene_graph.edge_states = scene_graph.edge_states/torch.sum(scene_graph.edge_states, dim=1,  keepdim=True)
                 #Normalize to [0,1]
                 scene_graph.edge_states = (scene_graph.edge_states - torch.min(scene_graph.edge_states, dim=-1, keepdim=True)[0])
                 scene_graph.edge_states = scene_graph.edge_states/torch.max(scene_graph.edge_states, dim=1, keepdim=True)[0]
+
+            scene_graph.edge_states.detach_()
+
         else:
             noise = torch.rand_like(scene_graph.edge_states)
-            noise2 = torch_rand_like(scene_graph.node_states)
+            noise2 = torch.rand_like(scene_graph.node_states)
 
             for _ in range(self.iters):
                 noise.normal_(0, self.sgld_var)
@@ -52,13 +54,17 @@ class SGLD(object):
                 node_states_grads.data.clamp_(-self.grad_clip, self.grad_clip)
 
                 scene_graph.edge_states.data.add_(edge_states_grads, alpha=-self.sgld_lr)
-                scene_graph,node_states.data.add_(node_states_grads, alpha=-self.sgld_lr)
+                scene_graph.node_states.data.add_(node_states_grads, alpha=-self.sgld_lr)
 
-                # scene_graph.edge_states = scene_graph.edge_states/torch.sum(scene_graph.edge_states, dim=1,  keepdim=True)
+                scene_graph.edge_states = (scene_graph.edge_states - torch.min(scene_graph.edge_states, dim=-1, keepdim=True)[0])
+                scene_graph.edge_states = scene_graph.edge_states/torch.max(scene_graph.edge_states, dim=1, keepdim=True)[0]
+
+                scene_graph.node_states = (scene_graph.node_states - torch.min(scene_graph.node_states, dim=-1, keepdim=True)[0])
+                scene_graph.node_states = scene_graph.node_states/torch.max(scene_graph.node_states, dim=1, keepdim=True)[0]
                 # scene_graph.node_states = scene_graph.node_states/torch.sum(scene_graph.node_states, dim=1,  keepdim=True)
 
-                scene_graph.edge_states.detach()
-                scene_graph.node_states.detach()
+            scene_graph.edge_states.detach_()
+            scene_graph.node_states.detach_()
 
         return scene_graph
 

@@ -10,6 +10,11 @@ from maskrcnn_benchmark.modeling.roi_heads.relation_head.utils_motifs import (
 import logging
 logger = logging.getLogger(__name__)
 
+def normalize_states(states):
+    states = states - torch.min(states, dim=-1, keepdim=True)[0]
+    states = states/torch.max(states, dim=1, keepdim=True)[0]
+    return states
+
 def get_predicted_sg(detections, num_obj_classes, mode, noise_var):
     '''
     This function converts the detction in scene grpah strucuter 
@@ -24,15 +29,22 @@ def get_predicted_sg(detections, num_obj_classes, mode, noise_var):
 
     ################################################################################################
     rel_list = torch.cat(detections[0], dim= 0)
-    rel_list = (rel_list - torch.min(rel_list, dim=-1, keepdim=True)[0])
-    rel_list = rel_list/torch.max(rel_list, dim=1, keepdim=True)[0]
-    
+    rel_list = normalize_states(rel_list)
+    # rel_list = (rel_list - torch.min(rel_list, dim=-1, keepdim=True)[0])
+    # rel_list = rel_list/torch.max(rel_list, dim=1, keepdim=True)[0]
+    # if detach:
+    #     rel_list.detach()
+
     node_list = torch.cat(detections[1], dim= 0)
     if mode == 'predcls':
         #Add small noise to the input
         node_noise = torch.rand_like(node_list).normal_(0, noise_var)
         node_list.data.add_(node_noise)
+    else:
+        node_list = normalize_states(node_list)
 
+    # if detach:
+    #     node_list.detach()
     ################################################################################################
 
     for i in range(len(detections[0])):
@@ -45,11 +57,6 @@ def get_predicted_sg(detections, num_obj_classes, mode, noise_var):
     batch_list = torch.cat(batch_list, dim=0).to(node_list.device)
     edge_batch_list = torch.cat(edge_batch_list, dim=0).to(node_list.device)
 
-    # adj_matrix = torch.zeros(size=(node_list.shape[0], node_list.shape[0])).to(node_list.device)
-    # adj_matrix[pair_list[:,0], pair_list[:,1]] = 1
-
-    # rel_list = torch.sparse.FloatTensor(pair_list.t(), rel_list, torch.Size([adj_matrix.shape[0], adj_matrix.shape[0], rel_list.shape[-1]])).to_dense()
-    
     return node_list, rel_list, pair_list, batch_list, edge_batch_list
 
 def get_gt_scene_graph(targets, num_obj_classes, num_rel_classes, noise_var):
@@ -104,14 +111,16 @@ def get_gt_im_graph(images, detections, base_model, noise_var):
 
     return node_states
 
-def get_pred_im_graph(images, detections, base_model, noise_var):
+def get_pred_im_graph(images, detections, base_model, noise_var, detach=True):
     #Extract region feature from the predictions
 
     features = base_model.backbone(images.tensors)
     node_states = base_model.roi_heads.relation.box_feature_extractor(features, detections[-1])
     node_noise = torch.rand_like(node_states).normal_(0, noise_var)
     node_states.data.add_(node_noise)
-    
+    if detach:
+        node_states.detach()
+
     return node_states
 
 def detection2graph(images, detections, base_model, num_obj_classes, mode, noise_var):

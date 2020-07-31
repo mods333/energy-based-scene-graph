@@ -50,7 +50,7 @@ def compute_on_dataset(model, data_loader, device, synchronize_gather=True, time
     torch.cuda.empty_cache()
     return results_dict
 
-def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loader, device, num_obj_classes, num_rel_classes, synchronize_gather=True, timer=None, dev_run=False):
+def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loader, device, with_sample=True, synchronize_gather=True, timer=None, dev_run=False):
     
     base_model.eval()
     energy_model.eval()
@@ -84,44 +84,32 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
                     torch.cuda.synchronize()
                 timer.toc()
             # output = [o.to(cpu_device) for o in output]
-        
-        #MCMC refinement
-        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images.to(device), output, base_model, num_obj_classes, mode, cfg.ENERGY_MODEL.DATA_NOISE_VAR)
-        
-        pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode)
 
-        # rel_offset = 0
-        # obj_offset = 0
-        
-        if mode == 'predcls':
-            num_rels = [r.shape[0] for r in output[0]]
-            relation_logits = pred_scene_graph.edge_states.split(num_rels)
-            object_logits = output[1]
+        if with_sample:
+            #MCMC refinement
+            pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images.to(device), output, base_model, cfg.DATASETS.NUM_OBJ_CLASSES, mode, cfg.ENERGY_MODEL.DATA_NOISE_VAR)
+            pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode, set_grad=True)
+
+            # rel_offset = 0
+            # obj_offset = 0
+            
+            if mode == 'predcls':
+                num_rels = [r.shape[0] for r in output[0]]
+                relation_logits = pred_scene_graph.edge_states.split(num_rels)
+                object_logits = output[1]
+
+            else:
+                num_rels = [r.shape[0] for r in output[0]]
+                num_objs = [o.shape[0] for o in output[1]]
+                relation_logits = pred_scene_graph.edge_states.split(num_rels)
+                object_logits = pred_scene_graph.node_states.split(num_objs)
+
+            #Post processing
+            output = energy_model.post_processor((relation_logits, object_logits), output[2], output[3])
 
         else:
-            num_rels = [r.shape[0] for r in output[0]]
-            num_objs = [o.shape[0] for o in output[1]]
-            relation_logits = pred_scene_graph.edge_states.split(num_rels)
-            object_logits = pred_scene_graph.node_states.split(num_objs)
-            # output[0] = pred_scene_graph.edge_states.split(num_rels)
-            # output[1] = pred_scene_graph.node_states.split(num_objs)
+            output = energy_model.post_processor((output[0], output[1]), output[2], output[3])
 
-            # for i in range(len(output[0])):
-            #     output[0][i] = pred_scene_graph.edge_states[i]
-            #     output[1][i] = pred_scene_graph.node_states[i]
-            # for o in output:
-            #     num_rels = o.extra_fields['pred_rel_scores'].shape[0]
-            #     num_objs = o.bbox.shape[0]
-
-            #     o.extra_fields['pred_rel_scores'] = pred_scene_graph.edge_states[rel_offset : rel_offset + num_rels]
-            #     o.extra_fields['predict_logits'] = pred_scene_graph.node_states[obj_offset: obj_offset + num_objs]
-
-            #     rel_offset += num_rels
-            #     obj_offset += num_objs
-
-        #Post processing
-        output = energy_model.post_processor((relation_logits, object_logits), output[2], output[3])
-        
         output = [o.to(cpu_device) for o in output]
 
         if synchronize_gather:
@@ -244,6 +232,7 @@ def energy_inference(
         sampler,
         data_loader,
         dataset_name,
+        with_sample = True,
         iou_types=("bbox",),
         box_only=False,
         device="cuda",
@@ -269,8 +258,7 @@ def energy_inference(
     if load_prediction_from_cache:
         predictions = torch.load(os.path.join(output_folder, "eval_results.pytorch"), map_location=torch.device("cpu"))['predictions']
     else:
-        predictions = compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loader, device, 
-                                        cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
+        predictions = compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loader, device,  with_sample = with_sample,
                                         synchronize_gather=cfg.TEST.RELATION.SYNC_GATHER, timer=inference_timer, dev_run=cfg.MODEL.DEV_RUN)
     
     # wait for all processes to complete before measuring the time

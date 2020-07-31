@@ -46,7 +46,7 @@ class EdgeGatedPooling(nn.Module):
         edge_alpha = self.hgate_edge(edge_features)
         
         node_pool = scatter(node_alpha*node_features, node_batch_list, dim=0)
-        edge_pool = scatter(edge_alpha*edge_features, edge_batch_list, dim=0)
+        edge_pool = scatter(edge_alpha*edge_features, edge_batch_list, dim=0, dim_size = node_pool.shape[0])
 
         return self.poolingLayer(cat((node_pool, edge_pool), -1))
 

@@ -36,7 +36,10 @@ class Graph(object):
             return 'pair'
         else:
             return 'matrix'
-    
+    def detach(self):
+        self.node_states.detach()
+        self.edge_states.detach()
+        
     def requires_grad(self, mode):
 
         if mode == 'predcls':

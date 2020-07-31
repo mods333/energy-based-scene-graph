@@ -97,7 +97,8 @@ def train(cfg, local_rank, distributed, logger):
     # Initialize mixed-precision training
     use_mixed_precision = cfg.DTYPE == "float16"
     amp_opt_level = 'O1' if use_mixed_precision else 'O0'
-    [base_model, energy_model] , [base_optimizer, energy_optimizer] = amp.initialize([base_model, energy_model], [base_optimizer, energy_optimizer], opt_level=amp_opt_level)
+    [base_model, energy_model] , [base_optimizer, energy_optimizer] = amp.initialize([
+        base_model, energy_model], [base_optimizer, energy_optimizer], opt_level=amp_opt_level, num_losses=2)
 
     ###################################################################################################
     ###################################################################################################
@@ -162,6 +163,7 @@ def train(cfg, local_rank, distributed, logger):
         is_distributed=distributed,
     )
     debug_print(logger, 'end dataloader')
+    
     ###################################################################################################
     ###################################################################################################
     if cfg.SOLVER.PRE_VAL:
@@ -178,6 +180,7 @@ def train(cfg, local_rank, distributed, logger):
     end = time.time()
 
     print_first_grad = True
+    
     for iteration, (images, targets, _) in enumerate(train_data_loader, start_iter):
 
         if any(len(target) < 1 for target in targets):
@@ -196,7 +199,7 @@ def train(cfg, local_rank, distributed, logger):
         images = images.to(device)
         targets = [target.to(device) for target in targets]
 
-        loss_dict, detections = base_model(images, targets)
+        task_loss_dict, detections = base_model(images,targets)
         
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model_module, 
                                                         cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
@@ -206,18 +209,21 @@ def train(cfg, local_rank, distributed, logger):
                                                                     cfg.ENERGY_MODEL.DATA_NOISE_VAR)
         
         #MCMC Step for Contrastive Loss
-        pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode, joint=True)
+        pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode, set_grad=False)
         ########################################################################
         ########################################################################
         #Loss Computation
         positive_energy = energy_model(gt_im_graph, gt_scene_graph, gt_bbox)
         negative_energy = energy_model(pred_im_graph, pred_scene_graph, pred_bbox)
 
-        energy_loss = loss_function(cfg, positive_energy, negative_energy)
-        loss_dict.update(energy_loss)
+        energy_loss_dict = loss_function(cfg, positive_energy, negative_energy)
+        #If the iteration is training ebm then only use ebm loss else add ebm loss to the task loss
 
-        losses = sum(loss for loss in loss_dict.values())
-
+        task_losses = sum(loss for loss in task_loss_dict.values())
+        energy_losses = sum(loss for loss in energy_loss_dict.values())
+        total_losses = task_losses + energy_losses
+        loss_dict = {**task_loss_dict, **energy_loss_dict}
+        
         if get_rank() == 0:
             log_dict = {k: v.item() for k, v in loss_dict.items()}
             wandb.log(log_dict)
@@ -236,13 +242,21 @@ def train(cfg, local_rank, distributed, logger):
 
         # Note: If mixed precision is not used, this ends up doing nothing
         # Otherwise apply loss scaling for mixed-precision recipe
-        with amp.scale_loss(losses, [base_optimizer, energy_optimizer]) as scaled_losses:
-            scaled_losses.backward()
-        # add clip_grad_norm from MOTIFS, tracking gradient, used for debug
+        with amp.scale_loss(total_losses, [base_optimizer, energy_optimizer]) as scaled_task_losses:
+            scaled_task_losses.backward()
+        # with amp.scale_loss(task_losses, base_optimizer, loss_id=1) as scaled_task_losses:
+        #     scaled_task_losses.backward()
+        # base_optimizer.step()
+
+        # with amp.scale_loss(energy_losses, energy_optimizer, loss_id=0) as scaled_energy_losses:
+        #     scaled_energy_losses.backward()
+        # energy_optimizer.step()
+         # add clip_grad_norm from MOTIFS, tracking gradient, used for debug
         verbose = (iteration % cfg.SOLVER.PRINT_GRAD_FREQ) == 0 or print_first_grad # print grad or not
         print_first_grad = False
         clip_grad_norm([(n, p) for n, p in energy_model.named_parameters() if p.requires_grad], max_norm=cfg.SOLVER.GRAD_NORM_CLIP, logger=logger, verbose=verbose, clip=True)
-        
+        clip_grad_norm([(n, p) for n, p in base_model.named_parameters() if p.requires_grad], max_norm=cfg.SOLVER.GRAD_NORM_CLIP, logger=logger, verbose=verbose, clip=True)
+
         base_optimizer.step()
         energy_optimizer.step()
         ########################################################################
@@ -291,17 +305,19 @@ def train(cfg, local_rank, distributed, logger):
         # scheduler should be called after optimizer.step() in pytorch>=1.1.0
         # https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
         if cfg.SOLVER.SCHEDULE.TYPE == "WarmupReduceLROnPlateau":
-            base_scheduler.step(val_result, epoch=iteration)
+            
             energy_scheduler.step(val_result, epoch=iteration)
+            base_scheduler.step(val_result, epoch=iteration)
+            
 
-            if energy_scheduler.stage_count >= cfg.SOLVER.SCHEDULE.MAX_DECAY_STEP:
+            if energy_scheduler.stage_count >= cfg.SOLVER.SCHEDULE.MAX_DECAY_STEP or base_scheduler.stage_count >= cfg.SOLVER.SCHEDULE.MAX_DECAY_STEP :
                 logger.info("Trigger MAX_DECAY_STEP at iteration {}.".format(iteration))
                 break
         else:
-            base_scheduler.step()
             energy_scheduler.step()
-        
-        if cfg.MODEL.DEV_RUN:
+            base_scheduler.step()
+
+        if cfg.MODEL.DEV_RUN and iteration == 10:
             break
     
     total_training_time = time.time() - start_training_time
@@ -338,6 +354,7 @@ def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, dis
     dataset_names = cfg.DATASETS.VAL
     val_result = []
     for dataset_name, val_data_loader in zip(dataset_names, val_data_loaders):
+        
         dataset_result = energy_inference(
                             cfg,
                             base_model,
@@ -345,6 +362,7 @@ def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, dis
                             sampler,
                             val_data_loader,
                             dataset_name=dataset_name,
+                            with_sample=True,
                             iou_types=iou_types,
                             box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
                             device=cfg.MODEL.DEVICE,
@@ -353,6 +371,22 @@ def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, dis
                             output_folder=None,
                             logger=logger,
                         )
+        dataset_result = energy_inference(
+                        cfg,
+                        base_model,
+                        energy_model,
+                        sampler,
+                        val_data_loader,
+                        dataset_name=dataset_name,
+                        with_sample=False,
+                        iou_types=iou_types,
+                        box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
+                        device=cfg.MODEL.DEVICE,
+                        expected_results=cfg.TEST.EXPECTED_RESULTS,
+                        expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
+                        output_folder=None,
+                        logger=logger,
+                    )
         synchronize()
         val_result.append(dataset_result)
     # support for multi gpu distributed testing
@@ -394,6 +428,7 @@ def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
     data_loaders_val = make_data_loader(cfg, mode='test', is_distributed=distributed)
     
     for output_folder, dataset_name, data_loader_val in zip(output_folders, dataset_names, data_loaders_val):
+        logger.info(">>>>>>>>>>Testing with Sampling")
         energy_inference(
             cfg,
             base_model,
@@ -401,6 +436,7 @@ def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
             sampler,
             data_loader_val,
             dataset_name=dataset_name,
+            with_sample = True,
             iou_types=iou_types,
             box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
             device=cfg.MODEL.DEVICE,
@@ -410,7 +446,24 @@ def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
             logger=logger,
             # is_distributed=distributed
         )
-        
+        logger.info(">>>>>>>>>>Testing without Sampling")
+        energy_inference(
+            cfg,
+            base_model,
+            energy_model,
+            sampler,
+            data_loader_val,
+            dataset_name=dataset_name,
+            with_sample = False,
+            iou_types=iou_types,
+            box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
+            device=cfg.MODEL.DEVICE,
+            expected_results=cfg.TEST.EXPECTED_RESULTS,
+            expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
+            output_folder=output_folder,
+            logger=logger,
+            # is_distributed=distributed
+        )
         synchronize()
 def main():
     ###################################################################################################
