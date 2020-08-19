@@ -101,21 +101,24 @@ def get_gt_scene_graph(targets, num_obj_classes, num_rel_classes, noise_var):
     
     return node_list, rel_list,  pair_list, batch_list, edge_batch_list
 
-def get_gt_im_graph(images, detections, base_model, noise_var):
+def get_gt_im_graph(node_states, images, detections, base_model, noise_var):
     #Extract region feature from the target bbox
-    
-    features = base_model.backbone(images.tensors)
-    node_states = base_model.roi_heads.relation.box_feature_extractor(features, detections)
+    # import ipdb; ipdb.set_trace()
+    if node_states is None:
+        features = base_model.backbone(images.tensors)
+        node_states = base_model.roi_heads.relation.box_feature_extractor(features, detections)
+
     node_noise = torch.rand_like(node_states).normal_(0, noise_var)
     node_states.data.add_(node_noise)
 
     return node_states
 
-def get_pred_im_graph(images, detections, base_model, noise_var, detach=True):
+def get_pred_im_graph(node_states, images, detections, base_model, noise_var, detach=True):
     #Extract region feature from the predictions
+    if node_states is None:
+        features = base_model.backbone(images.tensors)
+        node_states = base_model.roi_heads.relation.box_feature_extractor(features, detections[-1])
 
-    features = base_model.backbone(images.tensors)
-    node_states = base_model.roi_heads.relation.box_feature_extractor(features, detections[-1])
     node_noise = torch.rand_like(node_states).normal_(0, noise_var)
     node_states.data.add_(node_noise)
     if detach:
@@ -123,7 +126,7 @@ def get_pred_im_graph(images, detections, base_model, noise_var, detach=True):
 
     return node_states
 
-def detection2graph(images, detections, base_model, num_obj_classes, mode, noise_var):
+def detection2graph(node_states, images, detections, base_model, num_obj_classes, mode, noise_var):
 
     '''
     Create image graph and scene graph given the detections
@@ -143,14 +146,14 @@ def detection2graph(images, detections, base_model, num_obj_classes, mode, noise
     sg_node_states, sg_rel_states, adj_matrix, batch_list, edge_batch_list = get_predicted_sg(detections, num_obj_classes, mode, noise_var)
         
     #Iage graph generation
-    im_node_states = get_pred_im_graph(images, detections, base_model, noise_var)
+    im_node_states = get_pred_im_graph(node_states, images, detections, base_model, noise_var)
     
     scene_graph = Graph(sg_node_states, adj_matrix, batch_list, sg_rel_states, edge_batch_list)
     im_graph = Graph(im_node_states, adj_matrix, batch_list)
 
     return im_graph, scene_graph, encode_box_info(detections[-1])
 
-def gt2graph(images, targets, base_model, num_obj_classes, num_rel_classes, noise_var):
+def gt2graph(node_states, images, targets, base_model, num_obj_classes, num_rel_classes, noise_var):
 
     '''
     Create image graph and scene graph given the detections
@@ -168,7 +171,7 @@ def gt2graph(images, targets, base_model, num_obj_classes, num_rel_classes, nois
 
     sg_node_states, sg_edge_states, adj_matrix, batch_list, edge_batch_list = get_gt_scene_graph(targets, num_obj_classes, num_rel_classes, noise_var)
 
-    im_node_states = get_gt_im_graph(images, targets, base_model, noise_var)
+    im_node_states = get_gt_im_graph(node_states, images, targets, base_model, noise_var)
 
     sg_graph = Graph(sg_node_states, adj_matrix, batch_list, sg_edge_states, edge_batch_list)
     im_graph = Graph(im_node_states, adj_matrix, batch_list)
