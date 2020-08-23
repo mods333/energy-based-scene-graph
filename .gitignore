@@ -36,7 +36,7 @@ workspace.code-workspace
 #Dataset
 VG_100K
 *.h5
-
+*.zip
 #images
 *.png
 output.txt
