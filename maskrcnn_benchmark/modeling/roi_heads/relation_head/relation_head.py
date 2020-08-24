@@ -80,11 +80,7 @@ class ROIRelationHead(torch.nn.Module):
         refine_logits, relation_logits, add_losses = self.predictor(proposals, rel_pair_idxs, rel_labels, rel_binarys, roi_features, union_features, logger)
         # for test
         if not self.training:
-<<<<<<< HEAD
-            if self.cfg.MODEL.BASE_ONLY:    
-=======
             if self.cfg.MODEL.BASE_ONLY:
->>>>>>> fcde821fd8681efd501241b8e4d4132140bc01ad
                 result = self.post_processor((relation_logits, refine_logits), rel_pair_idxs, proposals)
             else:
                 result = (relation_logits, refine_logits, rel_pair_idxs, proposals)

@@ -69,11 +69,8 @@ class GeneralizedRCNN(nn.Module):
             if not self.cfg.MODEL.RELATION_ON:
                 # During the relationship training stage, the rpn_head should be fixed, and no loss. 
                 losses.update(proposal_losses)
-<<<<<<< HEAD
-=======
                 return losses
 
->>>>>>> fcde821fd8681efd501241b8e4d4132140bc01ad
             return losses, result, x
 
         return result
