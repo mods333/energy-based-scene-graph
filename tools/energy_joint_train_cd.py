@@ -200,11 +200,16 @@ def train(cfg, local_rank, distributed, logger):
         images = images.to(device)
         targets = [target.to(device) for target in targets]
 
+<<<<<<< HEAD
         # start_time = timer()
         task_loss_dict, detections, roi_features = base_model(images,targets)
         # end_time = timer()
         # print("Forward time {}".format(end_time - start_time))
 
+=======
+        task_loss_dict, detections, roi_features = base_model(images,targets)
+        
+>>>>>>> fcde821fd8681efd501241b8e4d4132140bc01ad
         if mode != 'sgdet':
             gt_node_states = roi_features
             pred_node_states = roi_features
@@ -212,6 +217,7 @@ def train(cfg, local_rank, distributed, logger):
             gt_node_states = None
             pred_node_states = roi_features
 
+<<<<<<< HEAD
         # start_time = timer()
         gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(gt_node_states, images, targets, base_model_module, 
                                                         cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
@@ -220,6 +226,12 @@ def train(cfg, local_rank, distributed, logger):
         # print("Gt-graph time {}".format(end_time - start_time))
 
         # start_time = timer()
+=======
+        gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(gt_node_states, images, targets, base_model_module, 
+                                                        cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
+                                                        cfg.ENERGY_MODEL.DATA_NOISE_VAR)
+
+>>>>>>> fcde821fd8681efd501241b8e4d4132140bc01ad
         pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(pred_node_states, images, detections, base_model_module, 
                                                                     cfg.DATASETS.NUM_OBJ_CLASSES, mode, 
                                                                     cfg.ENERGY_MODEL.DATA_NOISE_VAR)
@@ -286,8 +298,11 @@ def train(cfg, local_rank, distributed, logger):
         # start_time = timer()
         base_optimizer.step()
         energy_optimizer.step()
+<<<<<<< HEAD
         # end_time = timer()
         # print("step time {}".format(end_time - start_time))
+=======
+>>>>>>> fcde821fd8681efd501241b8e4d4132140bc01ad
         
         ########################################################################
         ########################################################################
