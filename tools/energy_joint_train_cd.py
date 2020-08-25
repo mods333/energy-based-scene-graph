@@ -488,7 +488,8 @@ def main():
         default=None,
         nargs=argparse.REMAINDER,
     )
-
+    parser.add_argument(
+            "--slurm_id", dest="slurm_id", type=int, help="slurm job id")
     args = parser.parse_args()
     ###################################################################################################
     ###################################################################################################
@@ -523,7 +524,7 @@ def main():
         if cfg.MODEL.DEV_RUN or cfg.WANDB.MUTE:
             os.environ['WANDB_MODE'] = 'dryrun'
 
-        wandb.init(project="sgebm")
+        wandb.init(project="sgebm", id=str(args.slurm_id))
     ###################################################################################################
     ###################################################################################################
     logger = setup_logger("maskrcnn_benchmark", output_dir, get_rank())
