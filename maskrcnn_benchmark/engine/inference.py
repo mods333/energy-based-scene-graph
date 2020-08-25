@@ -105,7 +105,7 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
                 object_logits = pred_scene_graph.node_states.split(num_objs)
 
             #Post processing
-            output = energy_model.post_processor((relation_logits, object_logits), output[2], output[3])
+            output = energy_model.post_processor((relation_logits.detach(), object_logits.detach()), output[2], output[3])
 
         else:
             output = energy_model.post_processor((output[0], output[1]), output[2], output[3])

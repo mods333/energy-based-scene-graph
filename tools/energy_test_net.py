@@ -66,15 +66,18 @@ def main():
         )
         synchronize()
 
-    # if get_rank() == 0:
-    #     wandb.init(project="sgebm")
-
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
 
-    statistics = get_dataset_statistics(cfg)
-    cfg.DATASETS.NUM_OBJ_CLASSES = len(statistics['obj_classes'])
-    cfg.DATASETS.NUM_REL_CLASSES = len(statistics['rel_classes'])
+    #Wandb Setup
+    if get_rank() == 0:
+        if cfg.MODEL.DEV_RUN or cfg.WANDB.MUTE:
+            os.environ['WANDB_MODE'] = 'dryrun'
+
+        wandb.init(project="sgebm")
+
+    cfg.DATASETS.NUM_OBJ_CLASSES = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+    cfg.DATASETS.NUM_REL_CLASSES = cfg.MODEL.ROI_RELATION_HEAD.NUM_CLASSES
 
     cfg.freeze()
 
@@ -137,6 +140,7 @@ def main():
             sampler,
             data_loader_val,
             dataset_name=dataset_name,
+            with_sampler=False,
             iou_types=iou_types,
             with_sample=False,
             box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,

@@ -195,6 +195,52 @@ class SGZeroShotRecall(SceneGraphEvaluation):
                 zero_rec_i = float(zeroshot_match) / float(len(self.zeroshot_idx))
                 self.result_dict[mode + '_zeroshot_recall'][k].append(zero_rec_i)
 
+class SGKShotRecall(SceneGraphEvaluation):
+    def __init__(self, result_dict):
+        super(SGKShotRecall, self).__init__(result_dict)
+
+    def register_container(self, mode, k_values):
+        self.k_values = k_values
+        self.kshot_idx = {}
+        for kshot in k_values:
+            self.result_dict[mode + '_{}_shot_recall'.format(kshot)] = {20: [], 50: [], 100: []} 
+
+    def generate_print_string(self, mode):
+        result_str = 'SGG eval: '
+        for kshot in self.k_values:
+            for k, v in self.result_dict[mode + '_{}_shot_recall'.format(kshot)].items():
+                result_str += ' zR @ %d: %.4f; ' % (k, np.mean(v))
+                # wandb.log({'zR @ {}'.format(k): np.mean(v)})
+            result_str += ' for mode={}, type={} Shot Recall.'.format(mode, kshot)
+            result_str += '\n'
+        return result_str
+
+    def prepare_zeroshot(self, global_container, local_container):
+        gt_rels = local_container['gt_rels']
+        gt_classes = local_container['gt_classes']
+        for kshot in self.k_values:
+            kshot_triplets = global_container['kshot_triplets'][kshot]
+
+            sub_id, ob_id, pred_label = gt_rels[:, 0], gt_rels[:, 1], gt_rels[:, 2]
+            gt_triplets = np.column_stack((gt_classes[sub_id], gt_classes[ob_id], pred_label))  # num_rel, 3
+
+            self.kshot_idx[kshot] = np.where( intersect_2d(gt_triplets, kshot_triplets).sum(-1) > 0 )[0].tolist()
+
+    def calculate_recall(self, global_container, local_container, mode):
+        pred_to_gt = local_container['pred_to_gt']
+
+        for kshot in self.k_values:
+            for k in  self.result_dict[mode + '_{}_shot_recall'.format(kshot)]:
+                # Zero Shot Recall
+                match = reduce(np.union1d, pred_to_gt[:k])
+                if len(self.kshot_idx[kshot]) > 0:
+                    if not isinstance(match, (list, tuple)):
+                        match_list = match.tolist()
+                    else:
+                        match_list = match
+                    kshot_match = len( self.kshot_idx[kshot]) + len(match_list) - len(set( self.kshot_idx[kshot] + match_list))
+                    k_rec_i = float(kshot_match) / float(len( self.kshot_idx[kshot]))
+                    self.result_dict[mode + '_{}_shot_recall'.format(kshot)][k].append(k_rec_i)
 
 """
 Give Ground Truth Object-Subject Pairs

@@ -4,6 +4,7 @@ import argparse
 import os
 import time
 import datetime
+from timeit import default_timer as timer
 
 import torch
 from torch.nn.utils import clip_grad_norm_
@@ -199,17 +200,31 @@ def train(cfg, local_rank, distributed, logger):
         images = images.to(device)
         targets = [target.to(device) for target in targets]
 
-        task_loss_dict, detections = base_model(images,targets)
+        task_loss_dict, detections, roi_features = base_model(images,targets)
         
-        gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(images, targets, base_model_module, 
+        if mode != 'sgdet':
+            gt_node_states = roi_features
+            pred_node_states = roi_features
+        else:
+            gt_node_states = None
+            pred_node_states = roi_features
+
+        gt_im_graph, gt_scene_graph, gt_bbox = gt2graph(gt_node_states, images, targets, base_model_module, 
                                                         cfg.DATASETS.NUM_OBJ_CLASSES, cfg.DATASETS.NUM_REL_CLASSES, 
                                                         cfg.ENERGY_MODEL.DATA_NOISE_VAR)
-        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(images, detections, base_model_module, 
+
+        pred_im_graph, pred_scene_graph, pred_bbox = detection2graph(pred_node_states, images, detections, base_model_module, 
                                                                     cfg.DATASETS.NUM_OBJ_CLASSES, mode, 
                                                                     cfg.ENERGY_MODEL.DATA_NOISE_VAR)
+        # end_time = timer()
+        # print("pred-graph time {}".format(end_time - start_time))
         
         #MCMC Step for Contrastive Loss
-        pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox, mode, set_grad=False)
+        # start_time = timer()
+        pred_scene_graph = sampler.sample(energy_model, pred_im_graph, pred_scene_graph, pred_bbox.detach(), mode, set_grad=False)
+        # end_time = timer()
+        # print("sampler time {}".format(end_time - start_time))
+        
         ########################################################################
         ########################################################################
         #Loss Computation
@@ -242,8 +257,12 @@ def train(cfg, local_rank, distributed, logger):
 
         # Note: If mixed precision is not used, this ends up doing nothing
         # Otherwise apply loss scaling for mixed-precision recipe
+        # start_time = timer()
         with amp.scale_loss(total_losses, [base_optimizer, energy_optimizer]) as scaled_task_losses:
             scaled_task_losses.backward()
+        # end_time = timer()
+        # print("loss backward time {}".format(end_time - start_time))
+        
         # with amp.scale_loss(task_losses, base_optimizer, loss_id=1) as scaled_task_losses:
         #     scaled_task_losses.backward()
         # base_optimizer.step()
@@ -257,14 +276,16 @@ def train(cfg, local_rank, distributed, logger):
         clip_grad_norm([(n, p) for n, p in energy_model.named_parameters() if p.requires_grad], max_norm=cfg.SOLVER.GRAD_NORM_CLIP, logger=logger, verbose=verbose, clip=True)
         clip_grad_norm([(n, p) for n, p in base_model.named_parameters() if p.requires_grad], max_norm=cfg.SOLVER.GRAD_NORM_CLIP, logger=logger, verbose=verbose, clip=True)
 
+        # start_time = timer()
         base_optimizer.step()
         energy_optimizer.step()
+        
         ########################################################################
         ########################################################################
         batch_time = time.time() - end
         end = time.time()
         meters.update(time=batch_time, data=data_time)
-
+        # import ipdb; ipdb.set_trace()
         eta_seconds = meters.time.global_avg * (max_iter - iteration)
         eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
 
@@ -275,7 +296,8 @@ def train(cfg, local_rank, distributed, logger):
                         "eta: {eta}",
                         "iter: {iter}",
                         "{meters}",
-                        "lr: {lr:.6f}",
+                        "energy lr: {lr:.6f}",
+                        "base lr : {lrb:.6f}",
                         "max mem: {memory:.0f}",
                     ]
                 ).format(
@@ -283,6 +305,7 @@ def train(cfg, local_rank, distributed, logger):
                     iter=iteration,
                     meters=str(meters),
                     lr=energy_optimizer.param_groups[-1]["lr"],
+                    lrb=base_optimizer.param_groups[-1]["lr"],
                     memory=torch.cuda.max_memory_allocated() / 1024.0 / 1024.0,
                 )
             )
@@ -355,22 +378,22 @@ def run_energy_val(cfg, base_model, energy_model, sampler, val_data_loaders, dis
     val_result = []
     for dataset_name, val_data_loader in zip(dataset_names, val_data_loaders):
         
-        dataset_result = energy_inference(
-                            cfg,
-                            base_model,
-                            energy_model,
-                            sampler,
-                            val_data_loader,
-                            dataset_name=dataset_name,
-                            with_sample=True,
-                            iou_types=iou_types,
-                            box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
-                            device=cfg.MODEL.DEVICE,
-                            expected_results=cfg.TEST.EXPECTED_RESULTS,
-                            expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
-                            output_folder=None,
-                            logger=logger,
-                        )
+        # dataset_result = energy_inference(
+        #                     cfg,
+        #                     base_model,
+        #                     energy_model,
+        #                     sampler,
+        #                     val_data_loader,
+        #                     dataset_name=dataset_name,
+        #                     with_sample=True,
+        #                     iou_types=iou_types,
+        #                     box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
+        #                     device=cfg.MODEL.DEVICE,
+        #                     expected_results=cfg.TEST.EXPECTED_RESULTS,
+        #                     expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
+        #                     output_folder=None,
+        #                     logger=logger,
+        #                 )
         dataset_result = energy_inference(
                         cfg,
                         base_model,
@@ -428,24 +451,24 @@ def run_test(cfg, base_model, energy_model, sampler, distributed, logger):
     data_loaders_val = make_data_loader(cfg, mode='test', is_distributed=distributed)
     
     for output_folder, dataset_name, data_loader_val in zip(output_folders, dataset_names, data_loaders_val):
-        logger.info(">>>>>>>>>>Testing with Sampling")
-        energy_inference(
-            cfg,
-            base_model,
-            energy_model,
-            sampler,
-            data_loader_val,
-            dataset_name=dataset_name,
-            with_sample = True,
-            iou_types=iou_types,
-            box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
-            device=cfg.MODEL.DEVICE,
-            expected_results=cfg.TEST.EXPECTED_RESULTS,
-            expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
-            output_folder=output_folder,
-            logger=logger,
-            # is_distributed=distributed
-        )
+        # logger.info(">>>>>>>>>>Testing with Sampling")
+        # energy_inference(
+        #     cfg,
+        #     base_model,
+        #     energy_model,
+        #     sampler,
+        #     data_loader_val,
+        #     dataset_name=dataset_name,
+        #     with_sample = True,
+        #     iou_types=iou_types,
+        #     box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
+        #     device=cfg.MODEL.DEVICE,
+        #     expected_results=cfg.TEST.EXPECTED_RESULTS,
+        #     expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
+        #     output_folder=output_folder,
+        #     logger=logger,
+        #     # is_distributed=distributed
+        # )
         logger.info(">>>>>>>>>>Testing without Sampling")
         energy_inference(
             cfg,
@@ -512,9 +535,8 @@ def main():
     if output_dir:
         mkdir(output_dir)
         
-    statistics = get_dataset_statistics(cfg)
-    cfg.DATASETS.NUM_OBJ_CLASSES = len(statistics['obj_classes'])
-    cfg.DATASETS.NUM_REL_CLASSES = len(statistics['rel_classes'])
+    cfg.DATASETS.NUM_OBJ_CLASSES = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+    cfg.DATASETS.NUM_REL_CLASSES = cfg.MODEL.ROI_RELATION_HEAD.NUM_CLASSES
 
     cfg.freeze()
     ###################################################################################################

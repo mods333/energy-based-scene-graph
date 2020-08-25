@@ -31,7 +31,7 @@ class ROIRelationHead(torch.nn.Module):
             self.box_feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
             feat_dim = self.box_feature_extractor.out_channels
         self.predictor = make_roi_relation_predictor(cfg, feat_dim)
-        # self.post_processor = make_roi_relation_post_processor(cfg)
+        self.post_processor = make_roi_relation_post_processor(cfg)
         self.loss_evaluator = make_roi_relation_loss_evaluator(cfg)
         self.samp_processor = make_roi_relation_samp_processor(cfg)
 
@@ -80,8 +80,10 @@ class ROIRelationHead(torch.nn.Module):
         refine_logits, relation_logits, add_losses = self.predictor(proposals, rel_pair_idxs, rel_labels, rel_binarys, roi_features, union_features, logger)
         # for test
         if not self.training:
-            # result = self.post_processor((relation_logits, refine_logits), rel_pair_idxs, proposals)
-            result = (relation_logits, refine_logits, rel_pair_idxs, proposals)
+            if self.cfg.MODEL.BASE_ONLY:
+                result = self.post_processor((relation_logits, refine_logits), rel_pair_idxs, proposals)
+            else:
+                result = (relation_logits, refine_logits, rel_pair_idxs, proposals)
             return roi_features, result, {}
 
         loss_relation, loss_refine = self.loss_evaluator(proposals, rel_labels, relation_logits, refine_logits)

@@ -25,6 +25,10 @@ def do_vg_evaluation(
 ):
     # get zeroshot triplet
     zeroshot_triplet = torch.load("maskrcnn_benchmark/data/datasets/evaluation/vg/zeroshot_triplet.pytorch", map_location=torch.device("cpu")).long().numpy()
+    kshot_triplets = {}
+    k_values = [1,2,3,4,5,6,7,8,9,10, 20, 25, 30, 40, 50, 100, 200]
+    for k in k_values:
+        kshot_triplets[k] = torch.load('maskrcnn_benchmark/data/datasets/evaluation/vg/vg-k-shot_triplets/vg-{}-shot-triplets.pytorch'.format(k))
 
     attribute_on = cfg.MODEL.ATTRIBUTE_ON
     num_attributes = cfg.MODEL.ROI_ATTRIBUTE_HEAD.NUM_ATTRIBUTES
@@ -132,6 +136,10 @@ def do_vg_evaluation(
         eval_zeroshot_recall.register_container(mode)
         evaluator['eval_zeroshot_recall'] = eval_zeroshot_recall
         
+        eval_kshot_recall = SGKShotRecall(result_dict)
+        eval_kshot_recall.register_container(mode, k_values)
+        evaluator['eval_kshot_recall'] = eval_kshot_recall
+
         # used by https://github.com/NVIDIA/ContrastiveLosses4VRD for sgcls and predcls
         eval_pair_accuracy = SGPairAccuracy(result_dict)
         eval_pair_accuracy.register_container(mode)
@@ -145,6 +153,7 @@ def do_vg_evaluation(
         # prepare all inputs
         global_container = {}
         global_container['zeroshot_triplet'] = zeroshot_triplet
+        global_container['kshot_triplets'] = kshot_triplets
         global_container['result_dict'] = result_dict
         global_container['mode'] = mode
         global_container['multiple_preds'] = multiple_preds
@@ -163,6 +172,7 @@ def do_vg_evaluation(
         result_str += eval_recall.generate_print_string(mode)
         result_str += eval_nog_recall.generate_print_string(mode)
         result_str += eval_zeroshot_recall.generate_print_string(mode)
+        result_str += eval_kshot_recall.generate_print_string(mode)
         result_str += eval_mean_recall.generate_print_string(mode)
         
         if cfg.MODEL.ROI_RELATION_HEAD.USE_GT_BOX:
@@ -248,6 +258,7 @@ def evaluate_relation_of_one_image(groundtruth, prediction, global_container, ev
 
     # to calculate the prior label based on statistics
     evaluator['eval_zeroshot_recall'].prepare_zeroshot(global_container, local_container)
+    evaluator['eval_kshot_recall'].prepare_zeroshot(global_container, local_container)
 
     if mode == 'predcls':
         local_container['pred_boxes'] = local_container['gt_boxes']
@@ -300,7 +311,8 @@ def evaluate_relation_of_one_image(groundtruth, prediction, global_container, ev
     evaluator['eval_mean_recall'].collect_mean_recall_items(global_container, local_container, mode)
     # Zero shot Recall
     evaluator['eval_zeroshot_recall'].calculate_recall(global_container, local_container, mode)
-
+    # K shot Recall
+    evaluator['eval_kshot_recall'].calculate_recall(global_container, local_container, mode)
     return 
 
 
