@@ -66,8 +66,8 @@ def main():
         )
         synchronize()
 
-    if get_rank() == 0:
-        wandb.init(project="sgebm")
+    # if get_rank() == 0:
+    #     wandb.init(project="sgebm")
 
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
@@ -138,6 +138,7 @@ def main():
             data_loader_val,
             dataset_name=dataset_name,
             iou_types=iou_types,
+            with_sample=False,
             box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
             device=cfg.MODEL.DEVICE,
             expected_results=cfg.TEST.EXPECTED_RESULTS,
