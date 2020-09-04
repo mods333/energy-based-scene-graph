@@ -21,7 +21,7 @@ def compute_on_dataset(model, data_loader, device, synchronize_gather=True, time
     results_dict = {}
     cpu_device = torch.device("cpu")
     torch.cuda.empty_cache()
-    for _, batch in enumerate(tqdm(data_loader)):
+    for itx, batch in enumerate(tqdm(data_loader)):
         with torch.no_grad():
             images, targets, image_ids = batch
             targets = [target.to(device) for target in targets]
@@ -69,6 +69,7 @@ def compute_with_energy_on_dataset(base_model, energy_model, sampler, data_loade
         mode = 'sgdet'
 
     for itx, batch in enumerate(tqdm(data_loader)):
+
         with torch.no_grad():
             images, targets, image_ids = batch
             targets = [target.to(device) for target in targets]

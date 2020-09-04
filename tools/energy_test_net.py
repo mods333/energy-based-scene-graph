@@ -69,7 +69,7 @@ def main():
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
 
-    #Wandb Setup
+    # #Wandb Setup
     if get_rank() == 0:
         if cfg.MODEL.DEV_RUN or cfg.WANDB.MUTE:
             os.environ['WANDB_MODE'] = 'dryrun'
@@ -133,23 +133,34 @@ def main():
     data_loaders_val = make_data_loader(cfg, mode="test", is_distributed=distributed)
 
     for output_folder, dataset_name, data_loader_val in zip(output_folders, dataset_names, data_loaders_val):
-        energy_inference(
+        inference(
             cfg,
             base_model,
-            energy_model,
-            sampler,
             data_loader_val,
             dataset_name=dataset_name,
-            with_sampler=False,
             iou_types=iou_types,
-            with_sample=False,
             box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
             device=cfg.MODEL.DEVICE,
             expected_results=cfg.TEST.EXPECTED_RESULTS,
             expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
             output_folder=output_folder,
-            logger=logger,
         )
+        # energy_inference(
+        #     cfg,
+        #     base_model,
+        #     energy_model,
+        #     sampler,
+        #     data_loader_val,
+        #     dataset_name=dataset_name,
+        #     with_sample=False,
+        #     iou_types=iou_types,
+        #     box_only=False if cfg.MODEL.RETINANET_ON else cfg.MODEL.RPN_ONLY,
+        #     device=cfg.MODEL.DEVICE,
+        #     expected_results=cfg.TEST.EXPECTED_RESULTS,
+        #     expected_results_sigma_tol=cfg.TEST.EXPECTED_RESULTS_SIGMA_TOL,
+        #     output_folder=output_folder,
+        #     logger=logger,
+        # )
         
         synchronize()
 

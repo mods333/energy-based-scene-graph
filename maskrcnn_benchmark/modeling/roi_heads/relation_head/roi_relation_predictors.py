@@ -390,6 +390,7 @@ class VCTreePredictor(nn.Module):
         num_inputs = in_channels
 
         # load class dict
+        print("Building VCTree")
         statistics = get_dataset_statistics(config)
         obj_classes, rel_classes, att_classes = statistics['obj_classes'], statistics['rel_classes'], statistics['att_classes']
         assert self.num_obj_cls==len(obj_classes)

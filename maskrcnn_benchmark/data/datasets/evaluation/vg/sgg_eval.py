@@ -224,7 +224,7 @@ class SGKShotRecall(SceneGraphEvaluation):
             sub_id, ob_id, pred_label = gt_rels[:, 0], gt_rels[:, 1], gt_rels[:, 2]
             gt_triplets = np.column_stack((gt_classes[sub_id], gt_classes[ob_id], pred_label))  # num_rel, 3
 
-            self.kshot_idx[kshot] = np.where( intersect_2d(gt_triplets, kshot_triplets).sum(-1) > 0 )[0].tolist()
+            self.kshot_idx[kshot] = np.where( intersect_2d(gt_triplets, kshot_triplets.numpy()).sum(-1) > 0 )[0].tolist()
 
     def calculate_recall(self, global_container, local_container, mode):
         pred_to_gt = local_container['pred_to_gt']
