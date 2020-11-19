@@ -2,7 +2,7 @@
 This repository contains the code for our paper Energy-Based Learning for Scene Graph Generation.
 
 ## Envirioment setup
-To setup the environment with all the required dependancies run `create_env.sh`. 
+To setup the environment with all the required dependancies follow the steps in `create_env.sh`. 
 \
 **Note**: By default the `cudatoolkit` version is set to 10.0. When creating an environment on your machine check you cuda compiler version by running `nvcc --version` and adjust the `cudatoolkit` version appopriately. Version mismatches can lead to the `build` failing or `segmentaion fault` error when running the code.
 
