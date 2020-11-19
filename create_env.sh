@@ -7,7 +7,7 @@ conda install scipy
 conda install h5py
 
 # scene_graph_benchmark and coco api dependencies
-pip install ninja yacs cython matplotlib tqdm opencv-python overrides
+python -m pip install ninja yacs cython matplotlib tqdm opencv-python overrides
 
 # follow PyTorch installation in https://pytorch.org/get-started/locally/
 # we give the instructions for CUDA 10.0
