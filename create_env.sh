@@ -2,9 +2,9 @@ conda create --name scene_graph_benchmark
 conda activate scene_graph_benchmark
 
 # this installs the right pip and dependencies for the fresh python
-conda install ipython
-conda install scipy
-conda install h5py
+conda install -y ipython
+conda install -y scipy
+conda install -y h5py
 
 # scene_graph_benchmark and coco api dependencies
 python -m pip install ninja yacs cython matplotlib tqdm opencv-python overrides
