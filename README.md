@@ -39,21 +39,21 @@ python -m torch.distributed.launch --master_port 10001 --nproc_per_node=4 \
 
 The above scripts trains a model using 4 GPUs. Here how to change the training behavior for various requirements.
 1. **Scene Graph Genration Tasks**
-  1. For PredCLS set \
+    1. For PredCLS set \
      `MODEL.ROI_RELATION_HEAD.USE_GT_BOX True MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL True`
-  2. For SGCLS set \
+    2. For SGCLS set \
     `MODEL.ROI_RELATION_HEAD.USE_GT_BOX True MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL False`
-  3. For SGDet set \
+    3. For SGDet set \
     `MODEL.ROI_RELATION_HEAD.USE_GT_BOX False MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL False`
-2. **Changing scene graph prediction model**
+2. **Changing scene graph prediction model** \
   Change `MODEL.ROI_RELATION_HEAD.PREDICTOR` to one of the available models
-  - `VCTreePredictor`
-  - `MotifPredictor`
-  - `IMPPredictor`
-  - `TransformerPredictor` (change SOLVER.BASE_LR to 0.001, SOLVER.SCHEDULE.TYPE to WarmupMultiStepLR, SOLVER.MAX_ITER to 16000, SOLVER.IMS_PER_BATCH to 16, SOLVER.STEPS to (10000, 16000). From [this repo](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch))
-  - If you would like to implement your own scene graph prection model just add the implementaion to [maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py](https://github.com/mods333/energy-based-scene-graph/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py)
-3. **Modifying Sampler**
-  Current implementation only has a single sampler (SGLD). You can implement samplers of your choice in [maskrcnn_benchmark/modeling/energy_head/sampler.py](https://github.com/mods333/energy-based-scene-graph/blob/master/maskrcnn_benchmark/modeling/energy_head/sampler.py). To change the parametes of the sampler use the fields under `SAMPLER` in the config.
+    - `VCTreePredictor`
+    - `MotifPredictor`
+    - `IMPPredictor`
+    - `TransformerPredictor` (change SOLVER.BASE_LR to 0.001, SOLVER.SCHEDULE.TYPE to WarmupMultiStepLR, SOLVER.MAX_ITER to 16000, SOLVER.IMS_PER_BATCH to 16, SOLVER.STEPS to (10000, 16000). From [this repo](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch))
+    - If you would like to implement your own scene graph prection model just add the implementaion to [maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py](https://github.com/mods333/energy-based-scene-graph/blob/master/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py)
+3. **Modifying Sampler** \
+    Current implementation only has a single sampler (SGLD). You can implement samplers of your choice in [maskrcnn_benchmark/modeling/energy_head/sampler.py](https://github.com/mods333/energy-based-scene-graph/blob/master/maskrcnn_benchmark/modeling/energy_head/sampler.py). To change the parametes of the sampler use the fields under `SAMPLER` in the config.
 
 ## Acknowledgment
 This repository is developed on top of the scene graph benchmarking framwork develped by [KaihuaTang](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch)
