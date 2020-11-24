@@ -5,6 +5,7 @@ Most of the requirements of this projects are exactly the same as [maskrcnn-benc
 ### Requirements:
 - PyTorch >= 1.2
 - torchvision >= 0.4
+- torchscatter
 - cocoapi
 - yacs
 - matplotlib
@@ -15,20 +16,19 @@ Most of the requirements of this projects are exactly the same as [maskrcnn-benc
 ### Step-by-step installation
 
 ```bash
-# first, make sure that your conda is setup properly with the right environment
-# for that, check that `which conda`, `which pip` and `which python` points to the
-# right path. From a clean conda env, this is what you need to do
-
 conda create --name scene_graph_benchmark
 conda activate scene_graph_benchmark
 
 # this installs the right pip and dependencies for the fresh python
-conda install ipython
-conda install scipy
-conda install h5py
+conda install -y ipython
+conda install -y scipy
+conda install -y h5py
 
 # scene_graph_benchmark and coco api dependencies
-pip install ninja yacs cython matplotlib tqdm opencv-python overrides
+python -m pip install ninja yacs cython matplotlib tqdm opencv-python overrides
+
+#To install torch scatter please refer to https://github.com/rusty1s/pytorch_scatter
+#Find the appropirate version depending on your cuda toolkit version and pytroch version
 
 # follow PyTorch installation in https://pytorch.org/get-started/locally/
 # we give the instructions for CUDA 10.0
@@ -50,7 +50,7 @@ python setup.py install --cuda_ext --cpp_ext
 
 # install PyTorch Detection
 cd $INSTALL_DIR
-git clone https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch.git
+git clone https://github.com/mods333/ScenGraphEBM.git
 cd scene-graph-benchmark
 
 # the following will install the lib with
