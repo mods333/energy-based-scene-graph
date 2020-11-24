@@ -19,6 +19,7 @@ We realsed the weights for the pretained VCTree model on the Visual Genome datas
 | [VCTree-SGCLS](https://tinyurl.com/vctree-ebm-sgcls)   | [VCTree-SGCLS](https://tinyurl.com/vctree-ce-sgcls)   |
 | [VCTree-SGDET](https://tinyurl.com/vctree-ebm-sgdet)   | [VCTree-SGDET](https://tinyurl.com/vctree-ce-sgdet)   |
 
+To train you own models you can obtain the weights for the pretrained detectron from [this repository](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch).
 
 
 ## Acknowledgment
