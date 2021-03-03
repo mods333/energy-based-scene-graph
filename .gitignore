@@ -1,4 +1,5 @@
 # compilation and distribution
+*.env
 __pycache__
 _ext
 *.pyc

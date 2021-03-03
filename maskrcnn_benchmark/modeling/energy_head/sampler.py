@@ -1,3 +1,5 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT
 import torch
 import torch.nn.functional as F
 from maskrcnn_benchmark.modeling import registry

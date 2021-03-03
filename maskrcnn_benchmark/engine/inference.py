@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+# Modifications Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 import logging
 import os
 import time
