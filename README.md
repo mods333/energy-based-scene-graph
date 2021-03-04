@@ -1,6 +1,6 @@
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/energy-based-learning-for-scene-graph/scene-graph-generation-on-visual-genome)](https://paperswithcode.com/sota/scene-graph-generation-on-visual-genome?p=energy-based-learning-for-scene-graph)
 # Energy-Based Learning for Scene Graph Generation
-This repository contains the code for our paper Energy-Based Learning for Scene Graph Generation.
+This repository contains the code for our paper [Energy-Based Learning for Scene Graph Generation](https://arxiv.org/abs/2103.02221) accepted at CVPR 2021.
 
 ## Envirioment setup
 To setup the environment with all the required dependancies follow the steps in [Install.md](https://github.com/mods333/energy-based-scene-graph/blob/master/INSTALL.md). 
