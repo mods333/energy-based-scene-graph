@@ -50,7 +50,7 @@ python setup.py install --cuda_ext --cpp_ext
 
 # install PyTorch Detection
 cd $INSTALL_DIR
-git clone https://github.com/mods333/ScenGraphEBM.git
+git clone https://github.com/mods333/energy-based-scene-graph
 cd scene-graph-benchmark
 
 # the following will install the lib with
